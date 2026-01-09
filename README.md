@@ -34,19 +34,21 @@
 
 ## Quick Install
 
-### One-liner (recommended)
+### One-liner (macOS/Linux - recommended)
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Yeachan-Heo/oh-my-claude-sisyphus/main/scripts/install.sh | bash
 ```
 
-### Via npm
+### Via npm (All platforms including Windows)
 
 ```bash
 npm install -g oh-my-claude-sisyphus
 ```
 
-### Manual Install
+> **Windows Users**: This is the only supported installation method. Requires Node.js 18+.
+
+### Manual Install (macOS/Linux)
 
 ```bash
 git clone https://github.com/Yeachan-Heo/oh-my-claude-sisyphus.git
@@ -543,6 +545,18 @@ If you're coming from oh-my-opencode:
 
 - [Claude Code](https://docs.anthropic.com/claude-code) installed
 - Anthropic API key (`ANTHROPIC_API_KEY` environment variable)
+- **Windows**: Node.js 18+ (for npm installation)
+- **macOS/Linux**: Bash shell (default) or Node.js 18+ (optional)
+
+### Platform Support
+
+| Platform | Install Method | Hook Type |
+|----------|---------------|-----------|
+| **Windows** | `npm install -g` | Node.js (.mjs) |
+| **macOS** | curl or npm | Bash (.sh) |
+| **Linux** | curl or npm | Bash (.sh) |
+
+> **Advanced**: Set `SISYPHUS_USE_NODE_HOOKS=1` to use Node.js hooks on macOS/Linux.
 
 ## License
 

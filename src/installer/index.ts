@@ -6,13 +6,29 @@
  *
  * This replicates the functionality of scripts/install.sh but in TypeScript,
  * allowing npm postinstall to work properly.
+ *
+ * Cross-platform support:
+ * - Windows: Uses Node.js-based hook scripts (.mjs)
+ * - Unix (macOS, Linux): Uses Bash scripts (.sh) by default
+ *
+ * Environment variables:
+ * - SISYPHUS_USE_NODE_HOOKS=1: Force Node.js hooks on any platform
+ * - SISYPHUS_USE_BASH_HOOKS=1: Force Bash hooks (Unix only)
  */
 
 import { existsSync, mkdirSync, writeFileSync, readFileSync, chmodSync } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
 import { execSync } from 'child_process';
-import { HOOK_SCRIPTS, HOOKS_SETTINGS_CONFIG } from './hooks.js';
+import {
+  HOOK_SCRIPTS,
+  HOOKS_SETTINGS_CONFIG,
+  getHookScripts,
+  getHooksSettingsConfig,
+  isWindows,
+  shouldUseNodeHooks,
+  MIN_NODE_VERSION
+} from './hooks.js';
 
 /** Claude Code configuration directory */
 export const CLAUDE_CONFIG_DIR = join(homedir(), '.claude');
@@ -45,11 +61,25 @@ export interface InstallOptions {
 }
 
 /**
+ * Check if the current Node.js version meets the minimum requirement
+ */
+export function checkNodeVersion(): { valid: boolean; current: number; required: number } {
+  const current = parseInt(process.versions.node.split('.')[0], 10);
+  return {
+    valid: current >= MIN_NODE_VERSION,
+    current,
+    required: MIN_NODE_VERSION
+  };
+}
+
+/**
  * Check if Claude Code is installed
+ * Uses 'where' on Windows, 'which' on Unix
  */
 export function isClaudeInstalled(): boolean {
   try {
-    execSync('which claude', { encoding: 'utf-8', stdio: 'pipe' });
+    const command = isWindows() ? 'where claude' : 'which claude';
+    execSync(command, { encoding: 'utf-8', stdio: 'pipe' });
     return true;
   } catch {
     return false;
@@ -2025,10 +2055,29 @@ export function install(options: InstallOptions = {}): InstallResult {
     }
   };
 
+  // Check Node.js version (required for Node.js hooks on Windows)
+  const nodeCheck = checkNodeVersion();
+  if (!nodeCheck.valid) {
+    log(`Warning: Node.js ${nodeCheck.required}+ required, found ${nodeCheck.current}`);
+    if (isWindows()) {
+      result.errors.push(`Node.js ${nodeCheck.required}+ is required for Windows support. Found: ${nodeCheck.current}`);
+      result.message = `Installation failed: Node.js ${nodeCheck.required}+ required`;
+      return result;
+    }
+    // On Unix, we can still use bash hooks, so just warn
+  }
+
+  // Log platform info
+  log(`Platform: ${process.platform} (${shouldUseNodeHooks() ? 'Node.js hooks' : 'Bash hooks'})`);
+
   // Check Claude installation (optional)
   if (!options.skipClaudeCheck && !isClaudeInstalled()) {
     log('Warning: Claude Code not found. Install it first:');
-    log('  curl -fsSL https://claude.ai/install.sh | bash');
+    if (isWindows()) {
+      log('  Visit https://docs.anthropic.com/claude-code for Windows installation');
+    } else {
+      log('  curl -fsSL https://claude.ai/install.sh | bash');
+    }
     // Continue anyway - user might be installing ahead of time
   }
 
@@ -2113,16 +2162,21 @@ export function install(options: InstallOptions = {}): InstallResult {
       log('CLAUDE.md exists in home directory, skipping');
     }
 
-    // Install hook scripts
-    log('Installing hook scripts...');
-    for (const [filename, content] of Object.entries(HOOK_SCRIPTS)) {
+    // Install hook scripts (platform-aware)
+    const hookScripts = getHookScripts();
+    const hookType = shouldUseNodeHooks() ? 'Node.js' : 'Bash';
+    log(`Installing ${hookType} hook scripts...`);
+
+    for (const [filename, content] of Object.entries(hookScripts)) {
       const filepath = join(HOOKS_DIR, filename);
       if (existsSync(filepath) && !options.force) {
         log(`  Skipping ${filename} (already exists)`);
       } else {
         writeFileSync(filepath, content);
-        // Make script executable
-        chmodSync(filepath, 0o755);
+        // Make script executable (skip on Windows - not needed)
+        if (!isWindows()) {
+          chmodSync(filepath, 0o755);
+        }
         log(`  Installed ${filename}`);
       }
     }
@@ -2136,9 +2190,10 @@ export function install(options: InstallOptions = {}): InstallResult {
         existingSettings = JSON.parse(settingsContent);
       }
 
-      // Merge hooks configuration
+      // Merge hooks configuration (platform-aware)
       const existingHooks = (existingSettings.hooks || {}) as Record<string, unknown>;
-      const newHooks = HOOKS_SETTINGS_CONFIG.hooks;
+      const hooksConfig = getHooksSettingsConfig();
+      const newHooks = hooksConfig.hooks;
 
       // Deep merge: add our hooks without overwriting existing ones
       for (const [eventType, eventHooks] of Object.entries(newHooks)) {

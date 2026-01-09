@@ -4,7 +4,57 @@
  *
  * Claude Code hooks are configured in settings.json and run as shell commands.
  * These scripts receive JSON input via stdin and output JSON to modify behavior.
+ *
+ * This module provides DUAL implementations:
+ * - Bash scripts (.sh) for Unix-like systems (macOS, Linux)
+ * - Node.js scripts (.mjs) for cross-platform support (Windows, macOS, Linux)
+ *
+ * The platform is detected at install time, or can be overridden with:
+ *   SISYPHUS_USE_NODE_HOOKS=1  - Force Node.js hooks on any platform
+ *   SISYPHUS_USE_BASH_HOOKS=1  - Force Bash hooks (Unix only)
  */
+
+import { homedir } from 'os';
+import { join } from 'path';
+
+/** Minimum required Node.js version for hooks */
+export const MIN_NODE_VERSION = 18;
+
+/** Check if running on Windows */
+export function isWindows(): boolean {
+  return process.platform === 'win32';
+}
+
+/** Check if Node.js hooks should be used (env override or Windows) */
+export function shouldUseNodeHooks(): boolean {
+  // Environment variable overrides
+  if (process.env.SISYPHUS_USE_NODE_HOOKS === '1') {
+    return true;
+  }
+  if (process.env.SISYPHUS_USE_BASH_HOOKS === '1') {
+    return false;
+  }
+  // Default: use Node.js on Windows, Bash elsewhere
+  return isWindows();
+}
+
+/** Get the Claude config directory path (cross-platform) */
+export function getClaudeConfigDir(): string {
+  return join(homedir(), '.claude');
+}
+
+/** Get the hooks directory path */
+export function getHooksDir(): string {
+  return join(getClaudeConfigDir(), 'hooks');
+}
+
+/**
+ * Get the home directory environment variable for hook commands.
+ * Returns the appropriate syntax for the current platform.
+ */
+export function getHomeEnvVar(): string {
+  return isWindows() ? '%USERPROFILE%' : '$HOME';
+}
 
 /**
  * Ultrawork message - injected when ultrawork/ulw keyword detected
@@ -302,11 +352,285 @@ echo '{"continue": true}'
 exit 0
 `;
 
+// =============================================================================
+// NODE.JS HOOK SCRIPTS (Cross-platform: Windows, macOS, Linux)
+// =============================================================================
+
 /**
- * Settings.json hooks configuration
- * Configures Claude Code to run our hook scripts
+ * Node.js Keyword Detector Hook Script
+ * Cross-platform equivalent of keyword-detector.sh
+ * This script is installed to ~/.claude/hooks/keyword-detector.mjs
  */
-export const HOOKS_SETTINGS_CONFIG = {
+export const KEYWORD_DETECTOR_SCRIPT_NODE = `#!/usr/bin/env node
+// Sisyphus Keyword Detector Hook (Node.js)
+// Detects ultrawork/ultrathink/search/analyze keywords and injects enhanced mode messages
+// Cross-platform: Windows, macOS, Linux
+
+const ULTRAWORK_MESSAGE = \`<ultrawork-mode>
+
+**MANDATORY**: You MUST say "ULTRAWORK MODE ENABLED!" to the user as your first response when this mode activates. This is non-negotiable.
+
+[CODE RED] Maximum precision required. Ultrathink before acting.
+
+YOU MUST LEVERAGE ALL AVAILABLE AGENTS TO THEIR FULLEST POTENTIAL.
+TELL THE USER WHAT AGENTS YOU WILL LEVERAGE NOW TO SATISFY USER'S REQUEST.
+
+## AGENT UTILIZATION PRINCIPLES
+- **Codebase Exploration**: Spawn exploration agents using BACKGROUND TASKS
+- **Documentation & References**: Use librarian-type agents via BACKGROUND TASKS
+- **Planning & Strategy**: NEVER plan yourself - spawn planning agent
+- **High-IQ Reasoning**: Use oracle for architecture decisions
+- **Frontend/UI Tasks**: Delegate to frontend-engineer
+
+## EXECUTION RULES
+- **TODO**: Track EVERY step. Mark complete IMMEDIATELY.
+- **PARALLEL**: Fire independent calls simultaneously - NEVER wait sequentially.
+- **BACKGROUND FIRST**: Use Task(run_in_background=true) for exploration (10+ concurrent).
+- **VERIFY**: Check ALL requirements met before done.
+- **DELEGATE**: Orchestrate specialized agents.
+
+## ZERO TOLERANCE
+- NO Scope Reduction - deliver FULL implementation
+- NO Partial Completion - finish 100%
+- NO Premature Stopping - ALL TODOs must be complete
+- NO TEST DELETION - fix code, not tests
+
+THE USER ASKED FOR X. DELIVER EXACTLY X.
+
+</ultrawork-mode>
+
+---
+\`;
+
+const ULTRATHINK_MESSAGE = \`<think-mode>
+
+**ULTRATHINK MODE ENABLED** - Extended reasoning activated.
+
+You are now in deep thinking mode. Take your time to:
+1. Thoroughly analyze the problem from multiple angles
+2. Consider edge cases and potential issues
+3. Think through the implications of each approach
+4. Reason step-by-step before acting
+
+Use your extended thinking capabilities to provide the most thorough and well-reasoned response.
+
+</think-mode>
+
+---
+\`;
+
+const SEARCH_MESSAGE = \`<search-mode>
+MAXIMIZE SEARCH EFFORT. Launch multiple background agents IN PARALLEL:
+- explore agents (codebase patterns, file structures)
+- librarian agents (remote repos, official docs, GitHub examples)
+Plus direct tools: Grep, Glob
+NEVER stop at first result - be exhaustive.
+</search-mode>
+
+---
+\`;
+
+const ANALYZE_MESSAGE = \`<analyze-mode>
+ANALYSIS MODE. Gather context before diving deep:
+
+CONTEXT GATHERING (parallel):
+- 1-2 explore agents (codebase patterns, implementations)
+- 1-2 librarian agents (if external library involved)
+- Direct tools: Grep, Glob, LSP for targeted searches
+
+IF COMPLEX (architecture, multi-system, debugging after 2+ failures):
+- Consult oracle agent for strategic guidance
+
+SYNTHESIZE findings before proceeding.
+</analyze-mode>
+
+---
+\`;
+
+// Read all stdin
+async function readStdin() {
+  const chunks = [];
+  for await (const chunk of process.stdin) {
+    chunks.push(chunk);
+  }
+  return Buffer.concat(chunks).toString('utf-8');
+}
+
+// Extract prompt from various JSON structures
+function extractPrompt(input) {
+  try {
+    const data = JSON.parse(input);
+    if (data.prompt) return data.prompt;
+    if (data.message?.content) return data.message.content;
+    if (Array.isArray(data.parts)) {
+      return data.parts
+        .filter(p => p.type === 'text')
+        .map(p => p.text)
+        .join(' ');
+    }
+    return '';
+  } catch {
+    // Fallback: try to extract with regex
+    const match = input.match(/"(?:prompt|content|text)"\\s*:\\s*"([^"]+)"/);
+    return match ? match[1] : '';
+  }
+}
+
+// Remove code blocks to prevent false positives
+function removeCodeBlocks(text) {
+  return text
+    .replace(/\`\`\`[\\s\\S]*?\`\`\`/g, '')
+    .replace(/\`[^\`]+\`/g, '');
+}
+
+// Main
+async function main() {
+  try {
+    const input = await readStdin();
+    if (!input.trim()) {
+      console.log(JSON.stringify({ continue: true }));
+      return;
+    }
+
+    const prompt = extractPrompt(input);
+    if (!prompt) {
+      console.log(JSON.stringify({ continue: true }));
+      return;
+    }
+
+    const cleanPrompt = removeCodeBlocks(prompt).toLowerCase();
+
+    // Check for ultrawork keywords (highest priority)
+    if (/\\b(ultrawork|ulw)\\b/.test(cleanPrompt)) {
+      console.log(JSON.stringify({ continue: true, message: ULTRAWORK_MESSAGE }));
+      return;
+    }
+
+    // Check for ultrathink/think keywords
+    if (/\\b(ultrathink|think)\\b/.test(cleanPrompt)) {
+      console.log(JSON.stringify({ continue: true, message: ULTRATHINK_MESSAGE }));
+      return;
+    }
+
+    // Check for search keywords
+    if (/\\b(search|find|locate|lookup|explore|discover|scan|grep|query|browse|detect|trace|seek|track|pinpoint|hunt)\\b|where\\s+is|show\\s+me|list\\s+all/.test(cleanPrompt)) {
+      console.log(JSON.stringify({ continue: true, message: SEARCH_MESSAGE }));
+      return;
+    }
+
+    // Check for analyze keywords
+    if (/\\b(analyze|analyse|investigate|examine|research|study|deep.?dive|inspect|audit|evaluate|assess|review|diagnose|scrutinize|dissect|debug|comprehend|interpret|breakdown|understand)\\b|why\\s+is|how\\s+does|how\\s+to/.test(cleanPrompt)) {
+      console.log(JSON.stringify({ continue: true, message: ANALYZE_MESSAGE }));
+      return;
+    }
+
+    // No keywords detected
+    console.log(JSON.stringify({ continue: true }));
+  } catch (error) {
+    // On any error, allow continuation
+    console.log(JSON.stringify({ continue: true }));
+  }
+}
+
+main();
+`;
+
+/**
+ * Node.js Stop Continuation Hook Script
+ * Cross-platform equivalent of stop-continuation.sh
+ * This script is installed to ~/.claude/hooks/stop-continuation.mjs
+ */
+export const STOP_CONTINUATION_SCRIPT_NODE = `#!/usr/bin/env node
+// Sisyphus Stop Continuation Hook (Node.js)
+// Checks for incomplete todos and injects continuation prompt
+// Cross-platform: Windows, macOS, Linux
+
+import { readdirSync, readFileSync, existsSync } from 'fs';
+import { join } from 'path';
+import { homedir } from 'os';
+
+// Read all stdin
+async function readStdin() {
+  const chunks = [];
+  for await (const chunk of process.stdin) {
+    chunks.push(chunk);
+  }
+  return Buffer.concat(chunks).toString('utf-8');
+}
+
+// Main
+async function main() {
+  try {
+    // Read stdin (we don't use it much, but need to consume it)
+    await readStdin();
+
+    // Check for incomplete todos
+    const todosDir = join(homedir(), '.claude', 'todos');
+    
+    if (!existsSync(todosDir)) {
+      console.log(JSON.stringify({ continue: true }));
+      return;
+    }
+
+    let incompleteCount = 0;
+
+    try {
+      const files = readdirSync(todosDir).filter(f => f.endsWith('.json'));
+      
+      for (const file of files) {
+        try {
+          const content = readFileSync(join(todosDir, file), 'utf-8');
+          const todos = JSON.parse(content);
+          
+          if (Array.isArray(todos)) {
+            const incomplete = todos.filter(
+              t => t.status !== 'completed' && t.status !== 'cancelled'
+            );
+            incompleteCount += incomplete.length;
+          }
+        } catch {
+          // Skip files that can't be parsed
+        }
+      }
+    } catch {
+      // Directory read error - allow continuation
+      console.log(JSON.stringify({ continue: true }));
+      return;
+    }
+
+    if (incompleteCount > 0) {
+      const reason = \`[SYSTEM REMINDER - TODO CONTINUATION]
+
+Incomplete tasks remain in your todo list (\${incompleteCount} remaining). Continue working on the next pending task.
+
+- Proceed without asking for permission
+- Mark each task complete when finished
+- Do not stop until all tasks are done\`;
+
+      console.log(JSON.stringify({ continue: false, reason }));
+      return;
+    }
+
+    // No incomplete todos - allow stop
+    console.log(JSON.stringify({ continue: true }));
+  } catch (error) {
+    // On any error, allow continuation
+    console.log(JSON.stringify({ continue: true }));
+  }
+}
+
+main();
+`;
+
+// =============================================================================
+// SETTINGS CONFIGURATION (Platform-aware)
+// =============================================================================
+
+/**
+ * Settings.json hooks configuration for Bash (Unix)
+ * Configures Claude Code to run our bash hook scripts
+ */
+export const HOOKS_SETTINGS_CONFIG_BASH = {
   hooks: {
     UserPromptSubmit: [
       {
@@ -332,9 +656,82 @@ export const HOOKS_SETTINGS_CONFIG = {
 };
 
 /**
- * All hook scripts to install
+ * Settings.json hooks configuration for Node.js (Cross-platform)
+ * Uses node to run .mjs scripts directly
  */
-export const HOOK_SCRIPTS: Record<string, string> = {
+export const HOOKS_SETTINGS_CONFIG_NODE = {
+  hooks: {
+    UserPromptSubmit: [
+      {
+        hooks: [
+          {
+            type: "command" as const,
+            // Note: On Windows, %USERPROFILE% is expanded by cmd.exe
+            // On Unix with node hooks, $HOME is expanded by the shell
+            command: isWindows()
+              ? 'node "%USERPROFILE%\\.claude\\hooks\\keyword-detector.mjs"'
+              : 'node "$HOME/.claude/hooks/keyword-detector.mjs"'
+          }
+        ]
+      }
+    ],
+    Stop: [
+      {
+        hooks: [
+          {
+            type: "command" as const,
+            command: isWindows()
+              ? 'node "%USERPROFILE%\\.claude\\hooks\\stop-continuation.mjs"'
+              : 'node "$HOME/.claude/hooks/stop-continuation.mjs"'
+          }
+        ]
+      }
+    ]
+  }
+};
+
+/**
+ * Get the appropriate hooks settings config for the current platform
+ */
+export function getHooksSettingsConfig(): typeof HOOKS_SETTINGS_CONFIG_BASH {
+  return shouldUseNodeHooks() ? HOOKS_SETTINGS_CONFIG_NODE : HOOKS_SETTINGS_CONFIG_BASH;
+}
+
+/**
+ * Legacy: Settings.json hooks configuration (Bash)
+ * @deprecated Use getHooksSettingsConfig() for cross-platform support
+ */
+export const HOOKS_SETTINGS_CONFIG = HOOKS_SETTINGS_CONFIG_BASH;
+
+// =============================================================================
+// HOOK SCRIPTS EXPORTS (Platform-aware)
+// =============================================================================
+
+/**
+ * Bash hook scripts (Unix only)
+ */
+export const HOOK_SCRIPTS_BASH: Record<string, string> = {
   'keyword-detector.sh': KEYWORD_DETECTOR_SCRIPT,
   'stop-continuation.sh': STOP_CONTINUATION_SCRIPT
 };
+
+/**
+ * Node.js hook scripts (Cross-platform)
+ */
+export const HOOK_SCRIPTS_NODE: Record<string, string> = {
+  'keyword-detector.mjs': KEYWORD_DETECTOR_SCRIPT_NODE,
+  'stop-continuation.mjs': STOP_CONTINUATION_SCRIPT_NODE
+};
+
+/**
+ * Get the appropriate hook scripts for the current platform
+ */
+export function getHookScripts(): Record<string, string> {
+  return shouldUseNodeHooks() ? HOOK_SCRIPTS_NODE : HOOK_SCRIPTS_BASH;
+}
+
+/**
+ * Legacy: All hook scripts to install (Bash)
+ * @deprecated Use getHookScripts() for cross-platform support
+ */
+export const HOOK_SCRIPTS: Record<string, string> = HOOK_SCRIPTS_BASH;

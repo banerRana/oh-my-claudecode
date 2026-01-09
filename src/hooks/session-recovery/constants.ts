@@ -6,7 +6,7 @@
  */
 
 import { join } from "node:path";
-import { homedir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 
 /**
  * Get the data directory for Claude Code storage
@@ -83,4 +83,4 @@ export const ERROR_PATTERNS = {
  * Debug logging configuration
  */
 export const DEBUG = process.env.SESSION_RECOVERY_DEBUG === "1";
-export const DEBUG_LOG_PATH = join(require("os").tmpdir(), "session-recovery-debug.log");
+export const DEBUG_LOG_PATH = join(tmpdir(), "session-recovery-debug.log");
