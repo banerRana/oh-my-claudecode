@@ -4158,6 +4158,8 @@ Use the Task tool to delegate to specialized agents:
 | \`metis\` | Opus | Pre-planning | Hidden requirements, risk analysis |
 | \`sisyphus-junior\` | Sonnet | Focused execution | Direct task implementation |
 | \`prometheus\` | Opus | Strategic planning | Creating comprehensive work plans |
+| \`qa-tester\` | Sonnet | CLI testing | Interactive CLI/service testing with tmux |
+| \`orchestrator-sisyphus\` | Opus | Master orchestration | Todo coordination, complex task management |
 
 ### Smart Model Routing (SAVE TOKENS)
 
