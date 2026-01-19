@@ -23,7 +23,9 @@ import {
   readRalphState,
   incrementRalphIteration,
   clearRalphState,
-  detectCompletionPromise
+  detectCompletionPromise,
+  getPrdCompletionStatus,
+  getRalphContext
 } from '../ralph-loop/index.js';
 import {
   readVerificationState,
@@ -51,7 +53,31 @@ export interface PersistentModeResult {
     iteration?: number;
     maxIterations?: number;
     reinforcementCount?: number;
+    todoContinuationAttempts?: number;
   };
+}
+
+/** Maximum todo-continuation attempts before giving up (prevents infinite loops) */
+const MAX_TODO_CONTINUATION_ATTEMPTS = 5;
+
+/** Track todo-continuation attempts per session to prevent infinite loops */
+const todoContinuationAttempts = new Map<string, number>();
+
+/**
+ * Get or increment todo-continuation attempt counter
+ */
+function trackTodoContinuationAttempt(sessionId: string): number {
+  const current = todoContinuationAttempts.get(sessionId) || 0;
+  const next = current + 1;
+  todoContinuationAttempts.set(sessionId, next);
+  return next;
+}
+
+/**
+ * Reset todo-continuation attempt counter (call when todos actually change)
+ */
+export function resetTodoContinuationAttempts(sessionId: string): void {
+  todoContinuationAttempts.delete(sessionId);
 }
 
 /**
@@ -127,6 +153,20 @@ async function checkRalphLoop(
     return null;
   }
 
+  // Check for PRD-based completion (all stories have passes: true)
+  const prdStatus = getPrdCompletionStatus(workingDir);
+  if (prdStatus.hasPrd && prdStatus.allComplete) {
+    // All PRD stories complete - allow completion
+    clearRalphState(workingDir);
+    clearVerificationState(workingDir);
+    deactivateUltrawork(workingDir);
+    return {
+      shouldBlock: false,
+      message: `[RALPH LOOP COMPLETE - PRD] All ${prdStatus.status?.total || 0} stories are complete! Great work!`,
+      mode: 'none'
+    };
+  }
+
   // Check for existing verification state (oracle verification in progress)
   const verificationState = readVerificationState(workingDir);
 
@@ -136,8 +176,10 @@ async function checkRalphLoop(
       // Check for oracle approval
       if (checkOracleApprovalInTranscript(sessionId)) {
         // Oracle approved - truly complete
+        // Also deactivate ultrawork if it was part of ultrawork-ralph
         clearVerificationState(workingDir);
         clearRalphState(workingDir);
+        deactivateUltrawork(workingDir);
         return {
           shouldBlock: false,
           message: `[RALPH LOOP VERIFIED COMPLETE] Oracle verified task completion after ${state.iteration} iteration(s). Excellent work!`,
@@ -202,7 +244,9 @@ async function checkRalphLoop(
     }
 
     // Fallback if verification state couldn't be created
+    // Also deactivate ultrawork if it was part of ultrawork-ralph
     clearRalphState(workingDir);
+    deactivateUltrawork(workingDir);
     return {
       shouldBlock: false,
       message: `[RALPH LOOP COMPLETE] Task completed after ${state.iteration} iteration(s). Great work!`,
@@ -212,8 +256,10 @@ async function checkRalphLoop(
 
   // Check max iterations
   if (state.iteration >= state.max_iterations) {
+    // Also deactivate ultrawork if it was part of ultrawork-ralph
     clearRalphState(workingDir);
     clearVerificationState(workingDir);
+    deactivateUltrawork(workingDir);
     return {
       shouldBlock: false,
       message: `[RALPH LOOP STOPPED] Max iterations (${state.max_iterations}) reached without completion promise. Consider reviewing the task requirements.`,
@@ -227,15 +273,21 @@ async function checkRalphLoop(
     return null;
   }
 
+  // Get PRD context for injection
+  const ralphContext = getRalphContext(workingDir);
+  const prdInstruction = prdStatus.hasPrd
+    ? `2. Check prd.json - are ALL stories marked passes: true?`
+    : `2. Check your todo list - are ALL items marked complete?`;
+
   const continuationPrompt = `<ralph-loop-continuation>
 
 [RALPH LOOP - ITERATION ${newState.iteration}/${newState.max_iterations}]
 
 Your previous attempt did not output the completion promise. The work is NOT done yet.
-
+${ralphContext}
 CRITICAL INSTRUCTIONS:
 1. Review your progress and the original task
-2. Check your todo list - are ALL items marked complete?
+${prdInstruction}
 3. Continue from where you left off
 4. When FULLY complete, output: <promise>${newState.completion_promise}</promise>
 5. Do NOT stop until the task is truly done
@@ -308,6 +360,7 @@ async function checkUltrawork(
 
 /**
  * Check for incomplete todos (baseline enforcement)
+ * Includes max-attempts counter to prevent infinite loops when agent is stuck
  */
 async function checkTodoContinuation(
   sessionId?: string,
@@ -316,7 +369,27 @@ async function checkTodoContinuation(
   const result = await checkIncompleteTodos(sessionId, directory);
 
   if (result.count === 0) {
+    // Reset counter when todos are cleared
+    if (sessionId) {
+      resetTodoContinuationAttempts(sessionId);
+    }
     return null;
+  }
+
+  // Track continuation attempts to prevent infinite loops
+  const attemptCount = sessionId ? trackTodoContinuationAttempt(sessionId) : 1;
+
+  if (attemptCount > MAX_TODO_CONTINUATION_ATTEMPTS) {
+    // Too many attempts - agent appears stuck, allow stop but warn
+    return {
+      shouldBlock: false,
+      message: `[TODO CONTINUATION LIMIT] Attempted ${MAX_TODO_CONTINUATION_ATTEMPTS} continuations without progress. ${result.count} tasks remain incomplete. Consider reviewing the stuck tasks or asking the user for guidance.`,
+      mode: 'none',
+      metadata: {
+        todoCount: result.count,
+        todoContinuationAttempts: attemptCount
+      }
+    };
   }
 
   const nextTodo = getNextPendingTodo(result);
@@ -324,11 +397,15 @@ async function checkTodoContinuation(
     ? `\n\nNext task: "${nextTodo.content}" (${nextTodo.status})`
     : '';
 
+  const attemptInfo = attemptCount > 1
+    ? `\n[Continuation attempt ${attemptCount}/${MAX_TODO_CONTINUATION_ATTEMPTS}]`
+    : '';
+
   const message = `<todo-continuation>
 
 ${TODO_CONTINUATION_PROMPT}
 
-[Status: ${result.count} of ${result.total} tasks remaining]${nextTaskInfo}
+[Status: ${result.count} of ${result.total} tasks remaining]${nextTaskInfo}${attemptInfo}
 
 </todo-continuation>
 
@@ -341,7 +418,8 @@ ${TODO_CONTINUATION_PROMPT}
     message,
     mode: 'todo-continuation',
     metadata: {
-      todoCount: result.count
+      todoCount: result.count,
+      todoContinuationAttempts: attemptCount
     }
   };
 }

@@ -113,6 +113,28 @@ Please continue working on these tasks.
 `);
     }
 
+    // Check for notepad Priority Context
+    const notepadPath = join(directory, '.sisyphus', 'notepad.md');
+    if (existsSync(notepadPath)) {
+      try {
+        const notepadContent = readFileSync(notepadPath, 'utf-8');
+        const priorityMatch = notepadContent.match(/## Priority Context\n([\s\S]*?)(?=## |$)/);
+        if (priorityMatch && priorityMatch[1].trim()) {
+          const priorityContext = priorityMatch[1].trim();
+          // Only inject if there's actual content (not just the placeholder comment)
+          const cleanContent = priorityContext.replace(/<!--[\s\S]*?-->/g, '').trim();
+          if (cleanContent) {
+            messages.push(`<notepad-context>
+[NOTEPAD - Priority Context]
+${cleanContent}
+</notepad-context>`);
+          }
+        }
+      } catch (err) {
+        // Silently ignore notepad read errors
+      }
+    }
+
     if (messages.length > 0) {
       console.log(JSON.stringify({ continue: true, message: messages.join('\n') }));
     } else {

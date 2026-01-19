@@ -4,12 +4,45 @@
  * Self-referential work loop that continues until a completion promise is detected.
  * Named after the character who keeps working until the job is done.
  *
+ * Enhanced with PRD (Product Requirements Document) support for structured task tracking.
+ * When a prd.json exists, completion is based on all stories having passes: true.
+ *
  * Ported from oh-my-opencode's ralph-loop hook.
  */
 
 import { existsSync, readFileSync, writeFileSync, mkdirSync, unlinkSync } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
+import {
+  readPrd,
+  getPrdStatus,
+  formatNextStoryPrompt,
+  formatPrdStatus,
+  type PRDStatus,
+  type UserStory
+} from '../ralph-prd/index.js';
+import {
+  getProgressContext,
+  appendProgress,
+  initProgress,
+  addPattern
+} from '../ralph-progress/index.js';
+
+// Forward declaration to avoid circular import - check ultraqa state file directly
+export function isUltraQAActive(directory: string): boolean {
+  const sisyphusDir = join(directory, '.sisyphus');
+  const stateFile = join(sisyphusDir, 'ultraqa-state.json');
+  if (!existsSync(stateFile)) {
+    return false;
+  }
+  try {
+    const content = readFileSync(stateFile, 'utf-8');
+    const state = JSON.parse(content);
+    return state && state.active === true;
+  } catch {
+    return false;
+  }
+}
 
 export interface RalphLoopState {
   /** Whether the loop is currently active */
@@ -26,6 +59,10 @@ export interface RalphLoopState {
   prompt: string;
   /** Session ID the loop is bound to */
   session_id?: string;
+  /** Whether PRD mode is active */
+  prd_mode?: boolean;
+  /** Current story being worked on */
+  current_story_id?: string;
 }
 
 export interface RalphLoopOptions {
@@ -179,6 +216,12 @@ export function createRalphLoopHook(directory: string): RalphLoopHook {
     prompt: string,
     options?: RalphLoopOptions
   ): boolean => {
+    // Mutual exclusion check: cannot start Ralph Loop if UltraQA is active
+    if (isUltraQAActive(directory)) {
+      console.error('Cannot start Ralph Loop while UltraQA is active. Cancel UltraQA first with /cancel-ultraqa.');
+      return false;
+    }
+
     const state: RalphLoopState = {
       active: true,
       iteration: 1,
@@ -212,3 +255,138 @@ export function createRalphLoopHook(directory: string): RalphLoopHook {
     getState
   };
 }
+
+// ============================================================================
+// PRD Integration
+// ============================================================================
+
+/**
+ * Check if PRD mode is available (prd.json exists)
+ */
+export function hasPrd(directory: string): boolean {
+  const prd = readPrd(directory);
+  return prd !== null;
+}
+
+/**
+ * Get PRD completion status for ralph-loop
+ */
+export function getPrdCompletionStatus(directory: string): {
+  hasPrd: boolean;
+  allComplete: boolean;
+  status: PRDStatus | null;
+  nextStory: UserStory | null;
+} {
+  const prd = readPrd(directory);
+
+  if (!prd) {
+    return {
+      hasPrd: false,
+      allComplete: false,
+      status: null,
+      nextStory: null
+    };
+  }
+
+  const status = getPrdStatus(prd);
+
+  return {
+    hasPrd: true,
+    allComplete: status.allComplete,
+    status,
+    nextStory: status.nextStory
+  };
+}
+
+/**
+ * Get context injection for ralph-loop continuation
+ * Includes PRD current story and progress memory
+ */
+export function getRalphContext(directory: string): string {
+  const parts: string[] = [];
+
+  // Add progress context (patterns, learnings)
+  const progressContext = getProgressContext(directory);
+  if (progressContext) {
+    parts.push(progressContext);
+  }
+
+  // Add current story from PRD
+  const prdStatus = getPrdCompletionStatus(directory);
+  if (prdStatus.hasPrd && prdStatus.nextStory) {
+    parts.push(formatNextStoryPrompt(prdStatus.nextStory));
+  }
+
+  // Add PRD status summary
+  if (prdStatus.status) {
+    parts.push(`<prd-status>\n${formatPrdStatus(prdStatus.status)}\n</prd-status>\n`);
+  }
+
+  return parts.join('\n');
+}
+
+/**
+ * Update ralph state with current story
+ */
+export function setCurrentStory(directory: string, storyId: string): boolean {
+  const state = readRalphState(directory);
+  if (!state) {
+    return false;
+  }
+
+  state.current_story_id = storyId;
+  return writeRalphState(directory, state);
+}
+
+/**
+ * Enable PRD mode in ralph state
+ */
+export function enablePrdMode(directory: string): boolean {
+  const state = readRalphState(directory);
+  if (!state) {
+    return false;
+  }
+
+  state.prd_mode = true;
+
+  // Initialize progress.txt if it doesn't exist
+  initProgress(directory);
+
+  return writeRalphState(directory, state);
+}
+
+/**
+ * Record progress after completing a story
+ */
+export function recordStoryProgress(
+  directory: string,
+  storyId: string,
+  implementation: string[],
+  filesChanged: string[],
+  learnings: string[]
+): boolean {
+  return appendProgress(directory, {
+    storyId,
+    implementation,
+    filesChanged,
+    learnings
+  });
+}
+
+/**
+ * Add a codebase pattern discovered during work
+ */
+export function recordPattern(directory: string, pattern: string): boolean {
+  return addPattern(directory, pattern);
+}
+
+/**
+ * Check if ralph-loop should complete based on PRD status
+ */
+export function shouldCompleteByPrd(directory: string): boolean {
+  const status = getPrdCompletionStatus(directory);
+  return status.hasPrd && status.allComplete;
+}
+
+// Re-export PRD types for convenience
+export type { PRD, PRDStatus, UserStory } from '../ralph-prd/index.js';

@@ -9,6 +9,7 @@
 import { existsSync, readFileSync, writeFileSync, readdirSync } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
+import { pruneOldEntries } from '../dist/hooks/notepad/index.js';
 
 // Read all stdin
 async function readStdin() {
@@ -37,6 +38,77 @@ function writeJsonFile(path, data) {
   } catch {
     return false;
   }
+}
+
+// Read PRD and get status
+function getPrdStatus(projectDir) {
+  // Check both root and .sisyphus for prd.json
+  const paths = [
+    join(projectDir, 'prd.json'),
+    join(projectDir, '.sisyphus', 'prd.json')
+  ];
+
+  for (const prdPath of paths) {
+    const prd = readJsonFile(prdPath);
+    if (prd && Array.isArray(prd.userStories)) {
+      const stories = prd.userStories;
+      const completed = stories.filter(s => s.passes === true);
+      const pending = stories.filter(s => s.passes !== true);
+      const sortedPending = [...pending].sort((a, b) => (a.priority || 999) - (b.priority || 999));
+
+      return {
+        hasPrd: true,
+        total: stories.length,
+        completed: completed.length,
+        pending: pending.length,
+        allComplete: pending.length === 0,
+        nextStory: sortedPending[0] || null,
+        incompleteIds: pending.map(s => s.id)
+      };
+    }
+  }
+
+  return { hasPrd: false, allComplete: false, nextStory: null };
+}
+
+// Read progress.txt patterns for context
+function getProgressPatterns(projectDir) {
+  const paths = [
+    join(projectDir, 'progress.txt'),
+    join(projectDir, '.sisyphus', 'progress.txt')
+  ];
+
+  for (const progressPath of paths) {
+    if (existsSync(progressPath)) {
+      try {
+        const content = readFileSync(progressPath, 'utf-8');
+        const patterns = [];
+        let inPatterns = false;
+
+        for (const line of content.split('\n')) {
+          const trimmed = line.trim();
+          if (trimmed === '## Codebase Patterns') {
+            inPatterns = true;
+            continue;
+          }
+          if (trimmed === '---') {
+            inPatterns = false;
+            continue;
+          }
+          if (inPatterns && trimmed.startsWith('-')) {
+            const pattern = trimmed.slice(1).trim();
+            if (pattern && !pattern.includes('No patterns')) {
+              patterns.push(pattern);
+            }
+          }
+        }
+
+        return patterns;
+      } catch {}
+    }
+  }
+
+  return [];
 }
 
 // Count incomplete todos
@@ -93,10 +165,33 @@ async function main() {
     // Count incomplete todos
     const incompleteCount = countIncompleteTodos(todosDir, directory);
 
-    // Priority 1: Ralph Loop with Oracle Verification
+    // Check PRD status
+    const prdStatus = getPrdStatus(directory);
+    const progressPatterns = getProgressPatterns(directory);
+
+    // Priority 1: Ralph Loop with PRD and Oracle Verification
     if (ralphState?.active) {
       const iteration = ralphState.iteration || 1;
-      const maxIter = ralphState.max_iterations || 10;
+      const maxIter = ralphState.max_iterations || 100; // Increased for PRD mode
+
+      // If PRD exists and all stories are complete, allow completion
+      if (prdStatus.hasPrd && prdStatus.allComplete) {
+        // Prune old notepad entries on clean session stop
+        try {
+          const pruneResult = pruneOldEntries(directory, 7);
+          if (pruneResult.pruned > 0) {
+            // Optionally log: console.error(`Pruned ${pruneResult.pruned} old notepad entries`);
+          }
+        } catch (err) {
+          // Silently ignore prune errors
+        }
+
+        console.log(JSON.stringify({
+          continue: true,
+          reason: `[RALPH LOOP COMPLETE - PRD] All ${prdStatus.total} stories are complete! Great work!`
+        }));
+        return;
+      }
 
       // Check if oracle verification is pending
       if (verificationState?.pending) {
@@ -148,6 +243,42 @@ ${verificationState.oracle_feedback}
         ralphState.iteration = newIter;
         writeJsonFile(join(directory, '.sisyphus', 'ralph-state.json'), ralphState);
 
+        // Build continuation message with PRD context if available
+        let prdContext = '';
+        if (prdStatus.hasPrd) {
+          prdContext = `
+## PRD STATUS
+${prdStatus.completed}/${prdStatus.total} stories complete. Remaining: ${prdStatus.incompleteIds.join(', ')}
+`;
+          if (prdStatus.nextStory) {
+            prdContext += `
+## CURRENT STORY: ${prdStatus.nextStory.id} - ${prdStatus.nextStory.title}
+
+${prdStatus.nextStory.description || ''}
+
+**Acceptance Criteria:**
+${(prdStatus.nextStory.acceptanceCriteria || []).map((c, i) => `${i + 1}. ${c}`).join('\n')}
+
+**Instructions:**
+1. Implement this story completely
+2. Verify ALL acceptance criteria are met
+3. Run quality checks (tests, typecheck, lint)
+4. Update prd.json to set passes: true for ${prdStatus.nextStory.id}
+5. Append progress to progress.txt
+6. Move to next story or output completion promise
+`;
+          }
+        }
+
+        // Add patterns from progress.txt
+        let patternsContext = '';
+        if (progressPatterns.length > 0) {
+          patternsContext = `
+## CODEBASE PATTERNS (from previous iterations)
+${progressPatterns.map(p => `- ${p}`).join('\n')}
+`;
+        }
+
         console.log(JSON.stringify({
           continue: false,
           reason: `<ralph-loop-continuation>
@@ -155,12 +286,12 @@ ${verificationState.oracle_feedback}
 [RALPH LOOP - ITERATION ${newIter}/${maxIter}]
 
 Your previous attempt did not output the completion promise. The work is NOT done yet.
-
+${prdContext}${patternsContext}
 CRITICAL INSTRUCTIONS:
 1. Review your progress and the original task
-2. Check your todo list - are ALL items marked complete?
+2. ${prdStatus.hasPrd ? 'Check prd.json - are ALL stories marked passes: true?' : 'Check your todo list - are ALL items marked complete?'}
 3. Continue from where you left off
-4. When FULLY complete, output: <promise>${ralphState.completion_promise || 'TASK_COMPLETE'}</promise>
+4. When FULLY complete, output: <promise>${ralphState.completion_promise || 'DONE'}</promise>
 5. Do NOT stop until the task is truly done
 
 ${ralphState.prompt ? `Original task: ${ralphState.prompt}` : ''}
@@ -181,6 +312,16 @@ ${ralphState.prompt ? `Original task: ${ralphState.prompt}` : ''}
 
       // Escape mechanism: after max reinforcements, allow stopping
       if (newCount > maxReinforcements) {
+        // Prune old notepad entries on clean session stop
+        try {
+          const pruneResult = pruneOldEntries(directory, 7);
+          if (pruneResult.pruned > 0) {
+            // Optionally log: console.error(`Pruned ${pruneResult.pruned} old notepad entries`);
+          }
+        } catch (err) {
+          // Silently ignore prune errors
+        }
+
         console.log(JSON.stringify({
           continue: true,
           reason: `[ULTRAWORK ESCAPE] Maximum reinforcements (${maxReinforcements}) reached. Allowing stop despite ${incompleteCount} incomplete todos. If tasks are genuinely stuck, consider cancelling them or asking the user for help.`
@@ -233,6 +374,16 @@ ${ultraworkState.original_prompt ? `Original task: ${ultraworkState.original_pro
 
       // Escape mechanism: after max continuations, allow stopping
       if (contState.count > maxContinuations) {
+        // Prune old notepad entries on clean session stop
+        try {
+          const pruneResult = pruneOldEntries(directory, 7);
+          if (pruneResult.pruned > 0) {
+            // Optionally log: console.error(`Pruned ${pruneResult.pruned} old notepad entries`);
+          }
+        } catch (err) {
+          // Silently ignore prune errors
+        }
+
         console.log(JSON.stringify({
           continue: true,
           reason: `[TODO ESCAPE] Maximum continuation attempts (${maxContinuations}) reached. Allowing stop despite ${incompleteCount} incomplete todos. Tasks may be stuck - consider reviewing and clearing them.`
@@ -260,7 +411,17 @@ Incomplete tasks remain in your todo list (${incompleteCount} remaining). Contin
       return;
     }
 
-    // No blocking needed
+    // No blocking needed - clean session stop
+    // Prune old notepad entries on clean session stop
+    try {
+      const pruneResult = pruneOldEntries(directory, 7);
+      if (pruneResult.pruned > 0) {
+        // Optionally log: console.error(`Pruned ${pruneResult.pruned} old notepad entries`);
+      }
+    } catch (err) {
+      // Silently ignore prune errors
+    }
+
     console.log(JSON.stringify({ continue: true }));
   } catch (error) {
     console.log(JSON.stringify({ continue: true }));

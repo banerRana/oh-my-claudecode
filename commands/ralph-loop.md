@@ -10,21 +10,127 @@ $ARGUMENTS
 
 You have entered the Ralph Loop - an INESCAPABLE development cycle that binds you to your task until VERIFIED completion. There is no early exit. There is no giving up. The only way out is through.
 
+## STEP 0: PRD INITIALIZATION (MANDATORY)
+
+**Before starting any work, check for prd.json:**
+
+```
+IF prd.json does NOT exist in root or .sisyphus/:
+  → CREATE prd.json FIRST
+  → Break task into discrete user stories
+  → Each story must be completable in one focused session
+  → Initialize progress.txt for learnings
+  → THEN proceed to work
+```
+
+### Auto-Initialize PRD
+
+If no `prd.json` exists, you MUST create one before proceeding:
+
+1. **Analyze the task** - Break into small, focused user stories
+2. **Create `.sisyphus/prd.json`** with this structure:
+
+```json
+{
+  "project": "[Project/Feature Name]",
+  "branchName": "ralph/[feature-name]",
+  "description": "[Task description from user]",
+  "userStories": [
+    {
+      "id": "US-001",
+      "title": "[Short title]",
+      "description": "As a [user], I want [action] so that [benefit].",
+      "acceptanceCriteria": [
+        "Criterion 1",
+        "Criterion 2",
+        "Typecheck passes",
+        "Tests pass (if applicable)"
+      ],
+      "priority": 1,
+      "passes": false,
+      "notes": ""
+    }
+  ]
+}
+```
+
+3. **Create `.sisyphus/progress.txt`**:
+
+```
+# Ralph Progress Log
+Started: [ISO timestamp]
+
+## Codebase Patterns
+(No patterns discovered yet)
+
+---
+
+```
+
+4. **Report PRD created**, then begin work on first story
+
+### Right-Sized Stories
+
+Each story should be:
+- **Completable in one session** - Not multi-day epics
+- **Independently testable** - Can verify without other stories
+- **Focused** - Single responsibility
+
+**Good examples:**
+- Add a database column and migration
+- Create a UI component
+- Add an API endpoint
+- Implement a specific function
+
+**Too big (split these):**
+- "Build the dashboard"
+- "Add authentication"
+- "Refactor everything"
+
 ## How The Loop Works
 
-1. **WORK CONTINUOUSLY** - Break tasks into todos, execute systematically
-2. **VERIFY THOROUGHLY** - Test, check, confirm every completion claim
-3. **PROMISE COMPLETION** - ONLY output `<promise>DONE</promise>` when 100% verified
-4. **AUTO-CONTINUATION** - If you stop without the promise, YOU WILL BE REMINDED TO CONTINUE
+1. **INITIALIZE PRD** - Create prd.json if not present (see above)
+2. **WORK CONTINUOUSLY** - Execute stories systematically
+3. **VERIFY THOROUGHLY** - Test, check, confirm every completion claim
+4. **PROMISE COMPLETION** - ONLY output `<promise>TASK_COMPLETE</promise>` when 100% verified
+5. **AUTO-CONTINUATION** - If you stop without the promise, YOU WILL BE REMINDED TO CONTINUE
+
+## PRD Workflow
+
+Once prd.json exists:
+
+1. **Read prd.json** - Understand all user stories and their status
+2. **Read progress.txt** - Check Codebase Patterns section for learnings
+3. **Pick highest priority story** where `passes: false`
+4. **Implement that single story** - Focus on one story at a time
+5. **Run quality checks** - typecheck, lint, test
+6. **Update prd.json** - Set `passes: true` for completed story
+7. **Append to progress.txt** - Document implementation and learnings
+8. **Repeat** until ALL stories have `passes: true`
+9. **Output promise** when all stories complete
+
+### Updating progress.txt
+
+After completing each story, append:
+
+```
+## [Date] - [Story ID]
+- What was implemented
+- Files changed
+- **Learnings:**
+  - Pattern or gotcha discovered
+```
+
+If you discover a **reusable pattern**, add it to the `## Codebase Patterns` section at the top.
 
 ## The Promise Mechanism
 
-The `<promise>DONE</promise>` tag is a SACRED CONTRACT. You may ONLY output it when:
+The `<promise>TASK_COMPLETE</promise>` tag is a SACRED CONTRACT. You may ONLY output it when:
 
-✓ ALL todo items are marked 'completed'
-✓ ALL requested functionality is implemented AND TESTED
-✓ ALL errors have been resolved
-✓ You have VERIFIED (not assumed) completion
+✓ ALL stories in prd.json have `passes: true`
+✓ ALL acceptance criteria for each story are met
+✓ Quality checks pass (typecheck, tests)
+✓ progress.txt updated with learnings
 
 **LYING IS DETECTED**: If you output the promise prematurely, your incomplete work will be exposed and you will be forced to continue.
 
@@ -32,35 +138,28 @@ The `<promise>DONE</promise>` tag is a SACRED CONTRACT. You may ONLY output it w
 
 | Condition | What Happens |
 |-----------|--------------|
-| `<promise>DONE</promise>` | Loop ends - work verified complete |
+| `<promise>TASK_COMPLETE</promise>` | Loop ends - work verified complete |
+| All PRD stories `passes: true` | Loop can end |
 | User runs `/cancel-ralph` | Loop cancelled by user |
-| Max iterations (100) | Safety limit reached |
+| Max iterations (10) | Safety limit reached |
 | Stop without promise | **CONTINUATION FORCED** |
 
 ## Continuation Enforcement
 
 If you attempt to stop without the promise tag:
 
-> [RALPH LOOP CONTINUATION] You stopped without completing your promise. The task is NOT done. Continue working on incomplete items. Do not stop until you can truthfully output `<promise>DONE</promise>`.
-
-## Working Style
-
-1. **Create Todo List First** - Map out ALL subtasks
-2. **Execute Systematically** - One task at a time, verify each
-3. **Delegate to Specialists** - Use subagents for specialized work
-4. **Parallelize When Possible** - Multiple agents for independent tasks
-5. **Verify Before Promising** - Test everything before the promise
+> [RALPH LOOP CONTINUATION] You stopped without completing your promise. The work is NOT done yet. Continue working on incomplete items. Do not stop until you can truthfully output `<promise>TASK_COMPLETE</promise>`.
 
 ## The Ralph Verification Checklist
 
-Before outputting `<promise>DONE</promise>`, verify:
+Before outputting `<promise>TASK_COMPLETE</promise>`, verify:
 
-- [ ] Todo list shows 100% completion
-- [ ] All code changes compile/run without errors
-- [ ] All tests pass (if applicable)
-- [ ] User's original request is FULLY addressed
+- [ ] prd.json exists with all stories
+- [ ] All stories have `passes: true`
+- [ ] All acceptance criteria for each story are met
+- [ ] Quality checks pass (typecheck, tests)
+- [ ] progress.txt updated with implementation details
 - [ ] No obvious bugs or issues remain
-- [ ] You have TESTED the changes, not just written them
 
 **If ANY checkbox is unchecked, DO NOT output the promise. Continue working.**
 
@@ -70,41 +169,42 @@ Before outputting `<promise>DONE</promise>`, verify:
 
 ### Step 1: Oracle Review
 ```
-Task(subagent_type="oracle", prompt="VERIFY COMPLETION:
+Task(subagent_type="oh-my-claude-sisyphus:oracle", prompt="VERIFY COMPLETION:
 Original task: [describe the task]
+PRD stories completed: [list story IDs]
 What I implemented: [list changes]
 Tests run: [test results]
 Please verify this is truly complete and production-ready.")
 ```
 
-### Step 2: Runtime Verification (Choose ONE)
+### Step 2: Runtime Verification
 
-**Option A: Standard Test Suite (PREFERRED)**
-If the project has tests (npm test, pytest, cargo test, etc.):
+Run the project's test suite:
 ```bash
-npm test  # or pytest, go test, etc.
+npm test  # or pytest, go test, cargo test, etc.
 ```
-Use this when existing tests cover the functionality.
-
-**Option B: QA-Tester (ONLY when needed)**
-Use qa-tester ONLY when ALL of these apply:
-- ✗ No existing test suite covers the behavior
-- ✓ Requires interactive CLI input/output
-- ✓ Needs service startup/shutdown verification
-- ✓ Tests streaming, real-time, or tmux-specific behavior
-
-```
-Task(subagent_type="qa-tester", prompt="VERIFY BEHAVIOR: ...")
-```
-
-**Gating Rule**: If `npm test` (or equivalent) passes, you do NOT need qa-tester.
 
 ### Step 3: Based on Verification Results
-- **If Oracle APPROVED + Tests/QA-Tester PASS**: Output `<promise>DONE</promise>`
+- **If Oracle APPROVED + Tests PASS**: Output `<promise>TASK_COMPLETE</promise>`
 - **If any REJECTED/FAILED**: Fix issues and re-verify
 
 **NO PROMISE WITHOUT VERIFICATION.**
 
+## Quick Reference: Story Completion
+
+When completing each story:
+
+1. **Implement** the story
+2. **Run checks**: `npm test` / `pytest` / etc.
+3. **Update prd.json**: Set `passes: true` for this story
+4. **Update progress.txt**: Append entry with learnings
+5. **Check remaining**: If more stories → next story; if all done → verify & promise
+
 ---
 
-Begin working on the task now. The loop will not release you until you earn your `<promise>DONE</promise>`.
+## BEGIN NOW
+
+1. **Check for prd.json** - If missing, CREATE IT FIRST
+2. **Read prd.json and progress.txt** - Understand current state
+3. **Work on first/next incomplete story**
+4. **The loop will not release you until you earn your `<promise>TASK_COMPLETE</promise>`**

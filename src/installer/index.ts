@@ -39,7 +39,7 @@ export const SETTINGS_FILE = join(CLAUDE_CONFIG_DIR, 'settings.json');
 export const VERSION_FILE = join(CLAUDE_CONFIG_DIR, '.sisyphus-version.json');
 
 /** Current version */
-export const VERSION = '2.4.1';
+export const VERSION = '2.6.0';
 
 /** Installation result */
 export interface InstallResult {
@@ -968,7 +968,7 @@ Include:
 | **Interview Mode** | Default state | Consult, research, discuss. NO plan generation. |
 | **Pre-Generation** | "Make it into a work plan" | Summon Metis → Ask final questions |
 | **Plan Generation** | After pre-generation complete | Generate plan, optionally loop through Momus |
-| **Handoff** | Plan saved | Tell user to run \`/start-work\` |
+| **Handoff** | Plan saved | Tell user "Plan saved. Start implementing when ready." |
 
 ## Key Principles
 
@@ -976,7 +976,7 @@ Include:
 2. **Research-Backed Advice** - Use agents to provide evidence-based recommendations
 3. **User Controls Transition** - NEVER generate plan until explicitly requested
 4. **Metis Before Plan** - Always catch gaps before committing to plan
-5. **Clear Handoff** - Always end with \`/start-work\` instruction`,
+5. **Clear Handoff** - Tell user the plan is ready to implement`,
 
   'qa-tester.md': `---
 name: qa-tester
@@ -1903,12 +1903,12 @@ You have entered the Ralph Loop - an INESCAPABLE development cycle that binds yo
 
 1. **WORK CONTINUOUSLY** - Break tasks into todos, execute systematically
 2. **VERIFY THOROUGHLY** - Test, check, confirm every completion claim
-3. **PROMISE COMPLETION** - ONLY output \`<promise>DONE</promise>\` when 100% verified
+3. **PROMISE COMPLETION** - ONLY output \`<promise>TASK_COMPLETE</promise>\` when 100% verified
 4. **AUTO-CONTINUATION** - If you stop without the promise, YOU WILL BE REMINDED TO CONTINUE
 
 ## The Promise Mechanism
 
-The \`<promise>DONE</promise>\` tag is a SACRED CONTRACT. You may ONLY output it when:
+The \`<promise>TASK_COMPLETE</promise>\` tag is a SACRED CONTRACT. You may ONLY output it when:
 
 ✓ ALL todo items are marked 'completed'
 ✓ ALL requested functionality is implemented AND TESTED
@@ -1921,16 +1921,16 @@ The \`<promise>DONE</promise>\` tag is a SACRED CONTRACT. You may ONLY output it
 
 | Condition | What Happens |
 |-----------|--------------|
-| \`<promise>DONE</promise>\` | Loop ends - work verified complete |
+| \`<promise>TASK_COMPLETE</promise>\` | Loop ends - work verified complete |
 | User runs \`/cancel-ralph\` | Loop cancelled by user |
-| Max iterations (100) | Safety limit reached |
+| Max iterations (10) | Safety limit reached |
 | Stop without promise | **CONTINUATION FORCED** |
 
 ## Continuation Enforcement
 
 If you attempt to stop without the promise tag:
 
-> [RALPH LOOP CONTINUATION] You stopped without completing your promise. The task is NOT done. Continue working on incomplete items. Do not stop until you can truthfully output \`<promise>DONE</promise>\`.
+> [RALPH LOOP CONTINUATION] You stopped without completing your promise. The task is NOT done. Continue working on incomplete items. Do not stop until you can truthfully output \`<promise>TASK_COMPLETE</promise>\`.
 
 ## Working Style
 
@@ -1942,7 +1942,7 @@ If you attempt to stop without the promise tag:
 
 ## The Ralph Verification Checklist
 
-Before outputting \`<promise>DONE</promise>\`, verify:
+Before outputting \`<promise>TASK_COMPLETE</promise>\`, verify:
 
 - [ ] Todo list shows 100% completion
 - [ ] All code changes compile/run without errors
@@ -1985,14 +1985,14 @@ Use qa-tester ONLY when ALL of these apply:
 **Gating Rule**: If \`npm test\` (or equivalent) passes, you do NOT need qa-tester.
 
 ### Step 3: Based on Verification Results
-- **If Oracle APPROVED + Tests/QA-Tester PASS**: Output \`<promise>DONE</promise>\`
+- **If Oracle APPROVED + Tests/QA-Tester PASS**: Output \`<promise>TASK_COMPLETE</promise>\`
 - **If any REJECTED/FAILED**: Fix issues and re-verify
 
 **NO PROMISE WITHOUT VERIFICATION.**
 
 ---
 
-Begin working on the task now. The loop will not release you until you earn your \`<promise>DONE</promise>\`.`,
+Begin working on the task now. The loop will not release you until you earn your \`<promise>TASK_COMPLETE</promise>\`.`,
 
   'cancel-ralph.md': `---
 description: Cancel active Ralph Loop
@@ -2002,7 +2002,426 @@ description: Cancel active Ralph Loop
 
 The Ralph Loop has been cancelled. You can stop working on the current task.
 
-If you want to start a new loop, use \`/ralph-loop "task description"\`.`
+If you want to start a new loop, use \`/ralph-loop "task description"\`.`,
+
+  'ultrawork-ralph.md': `---
+description: Maximum intensity mode with completion guarantee - ultrawork + ralph loop combined
+---
+
+[ULTRAWORK-RALPH ACTIVATED - MAXIMUM INTENSITY + COMPLETION GUARANTEE]
+
+$ARGUMENTS
+
+## THE ULTIMATE MODE
+
+You are now in **ULTRAWORK-RALPH** mode - the most powerful execution mode available. This combines:
+- **ULTRAWORK**: Maximum intensity, parallel everything, aggressive delegation
+- **RALPH LOOP**: Inescapable completion guarantee with oracle verification
+
+There is no half-measures. There is no early exit. You work at MAXIMUM INTENSITY until VERIFIED completion.
+
+## ULTRAWORK OVERRIDES (ACTIVE)
+
+| Default Behavior | Ultrawork Override |
+|------------------|-------------------|
+| Parallelize when profitable | **PARALLEL EVERYTHING** |
+| Do simple tasks directly | **DELEGATE EVEN SMALL TASKS** |
+| Wait for verification | **DON'T WAIT - continue immediately** |
+| Background for long ops | **BACKGROUND EVERYTHING POSSIBLE** |
+
+## RALPH LOOP ENFORCEMENT (ACTIVE)
+
+The \`<promise>TASK_COMPLETE</promise>\` tag binds you to completion. You may ONLY output it when:
+
+- [ ] ALL todo items are marked 'completed'
+- [ ] ALL requested functionality is implemented AND TESTED
+- [ ] ALL errors have been resolved
+- [ ] Oracle has VERIFIED completion
+- [ ] You have TESTED (not assumed) the changes work
+
+**If you stop without the promise, YOU WILL BE FORCED TO CONTINUE.**
+
+## EXECUTION PROTOCOL
+
+### 1. PARALLEL EVERYTHING
+- Fire off MULTIPLE agents simultaneously
+- Use background execution for ALL operations
+- Launch 3-5 agents in parallel when possible
+- Maximum throughput is the only goal
+
+### 2. DELEGATE AGGRESSIVELY
+Route tasks to specialists IMMEDIATELY:
+- \`oracle\` / \`oracle-medium\` → debugging, analysis, verification
+- \`librarian\` → research, doc lookup
+- \`explore\` → codebase search
+- \`frontend-engineer\` → UI work
+- \`sisyphus-junior\` / \`sisyphus-junior-high\` → code changes
+- \`qa-tester\` / \`qa-tester-high\` → verification
+
+### 3. NEVER WAIT
+- Start the next task BEFORE the previous one completes
+- Check background task results LATER
+- Maximum concurrency at all times
+
+### 4. TODO OBSESSION
+- Create TODO list IMMEDIATELY with atomic steps
+- Mark in_progress BEFORE starting (one at a time)
+- Mark completed IMMEDIATELY after each step
+- NEVER batch completions
+
+## VERIFICATION PROTOCOL (MANDATORY)
+
+### Step 1: Self-Check
+Run through the checklist above. ALL boxes must be checked.
+
+### Step 2: Oracle Review
+\`\`\`
+Task(subagent_type="oracle", prompt="VERIFY COMPLETION:
+Original task: [task]
+Changes made: [list]
+Tests run: [results]
+Verify this is complete and production-ready.")
+\`\`\`
+
+### Step 3: Runtime Verification
+\`\`\`bash
+npm test  # or pytest, go test, cargo test
+\`\`\`
+
+### Step 4: Decision
+- **Oracle APPROVED + Tests PASS** → Output \`<promise>TASK_COMPLETE</promise>\`
+- **Any REJECTED/FAILED** → Fix and re-verify
+
+## EXIT CONDITIONS
+
+| Condition | What Happens |
+|-----------|--------------|
+| \`<promise>TASK_COMPLETE</promise>\` | Both modes end - work verified complete |
+| User runs \`/cancel-ralph\` | Both modes cancelled |
+| Max iterations (10) | Safety limit reached |
+| Stop without promise | **CONTINUATION FORCED** |
+
+## THE BOULDER NEVER STOPS
+
+The boulder rolls at MAXIMUM SPEED until it reaches the summit. No shortcuts. No giving up. Only verified completion releases you.
+
+---
+
+Begin working NOW. PARALLEL EVERYTHING. The loop will not release you until you earn your \`<promise>TASK_COMPLETE</promise>\`.`,
+
+  'ultraqa.md': `---
+description: QA cycling workflow - test, verify, fix, repeat until goal met
+---
+
+[ULTRAQA ACTIVATED - AUTONOMOUS QA CYCLING]
+
+$ARGUMENTS
+
+## ULTRAQA MODE
+
+You are now in **ULTRAQA** mode - an autonomous QA cycling workflow that runs until your quality goal is met.
+
+**Cycle**: qa-tester → oracle verification → fix → repeat
+
+## GOAL PARSING
+
+Parse the goal from arguments. Supported formats:
+
+| Invocation | Goal Type | What to Check |
+|------------|-----------|---------------|
+| \`/ultraqa --tests\` | tests | All test suites pass |
+| \`/ultraqa --build\` | build | Build succeeds with exit 0 |
+| \`/ultraqa --lint\` | lint | No lint errors |
+| \`/ultraqa --typecheck\` | typecheck | No TypeScript errors |
+| \`/ultraqa --custom "pattern"\` | custom | Custom success pattern in output |
+
+If no structured goal provided, interpret the argument as a custom goal.
+
+## CYCLE WORKFLOW
+
+### Cycle N (Max 5)
+
+1. **RUN QA**: Execute verification based on goal type
+   - \`--tests\`: Run \`npm test\` or equivalent
+   - \`--build\`: Run \`npm run build\` or equivalent
+   - \`--lint\`: Run \`npm run lint\` or equivalent
+   - \`--typecheck\`: Run \`npm run typecheck\` or \`tsc --noEmit\`
+   - \`--custom\`: Run appropriate command and check for pattern
+
+2. **CHECK RESULT**: Did the goal pass?
+   - **YES** → Exit with success message
+   - **NO** → Continue to step 3
+
+3. **ORACLE DIAGNOSIS**: Spawn oracle to analyze failure
+   \`\`\`
+   Task(subagent_type="oracle", prompt="DIAGNOSE FAILURE:
+   Goal: [goal type]
+   Output: [test/build output]
+   Provide root cause and specific fix recommendations.")
+   \`\`\`
+
+4. **FIX ISSUES**: Apply oracle's recommendations
+   - Use sisyphus-junior for code changes
+   - Be specific and targeted
+
+5. **REPEAT**: Go back to step 1
+
+## EXIT CONDITIONS
+
+| Condition | Action |
+|-----------|--------|
+| **Goal Met** | Exit with success: "ULTRAQA COMPLETE: Goal met after N cycles" |
+| **Cycle 5 Reached** | Exit with diagnosis: "ULTRAQA STOPPED: Max cycles. Diagnosis: ..." |
+| **Same Failure 3x** | Exit early: "ULTRAQA STOPPED: Same failure detected 3 times. Root cause: ..." |
+| **Environment Error** | Exit: "ULTRAQA ERROR: [tmux/port/dependency issue]" |
+
+## OBSERVABILITY
+
+Output progress each cycle:
+\`\`\`
+[ULTRAQA Cycle 1/5] Running tests...
+[ULTRAQA Cycle 1/5] FAILED - 3 tests failing
+[ULTRAQA Cycle 1/5] Oracle diagnosing...
+[ULTRAQA Cycle 1/5] Fixing: auth.test.ts - missing mock
+[ULTRAQA Cycle 2/5] Running tests...
+[ULTRAQA Cycle 2/5] PASSED - All 47 tests pass
+[ULTRAQA COMPLETE] Goal met after 2 cycles
+\`\`\`
+
+## STATE TRACKING
+
+Track state in \`.sisyphus/ultraqa-state.json\`:
+\`\`\`json
+{
+  "active": true,
+  "goal_type": "tests",
+  "goal_pattern": null,
+  "cycle": 1,
+  "max_cycles": 5,
+  "failures": ["3 tests failing: auth.test.ts"],
+  "started_at": "2024-01-18T12:00:00Z",
+  "session_id": "uuid"
+}
+\`\`\`
+
+## CANCELLATION
+
+User can cancel with \`/cancel-ultraqa\` which clears the state file.
+
+## IMPORTANT RULES
+
+1. **PARALLEL when possible** - Run diagnosis while preparing potential fixes
+2. **TRACK failures** - Record each failure to detect patterns
+3. **EARLY EXIT on pattern** - 3x same failure = stop and surface
+4. **CLEAR OUTPUT** - User should always know current cycle and status
+5. **CLEAN UP** - Clear state file on completion or cancellation
+
+---
+
+Begin ULTRAQA cycling now. Parse the goal and start cycle 1.`,
+
+  'cancel-ultraqa.md': `---
+description: Cancel active UltraQA cycling workflow
+---
+
+[ULTRAQA CANCELLED]
+
+The UltraQA cycling workflow has been cancelled. Clearing state file.
+
+## MANDATORY ACTION
+
+Execute this command to cancel UltraQA:
+
+\`\`\`bash
+mkdir -p .sisyphus && echo '{"active": false, "cancelled_at": "'\$(date -Iseconds)'", "reason": "User cancelled via /cancel-ultraqa"}' > .sisyphus/ultraqa-state.json
+\`\`\`
+
+After running this command, the QA cycling will stop.
+
+## To Start Fresh
+
+- \`/ultraqa --tests\` - Run until all tests pass
+- \`/ultraqa --build\` - Run until build succeeds
+- \`/ultraqa --lint\` - Run until no lint errors
+- \`/ultraqa --typecheck\` - Run until no type errors
+- \`/ultraqa --custom "pattern"\` - Run until pattern matches`,
+
+  'ralph-init.md': `---
+description: Initialize a PRD (Product Requirements Document) for structured ralph-loop execution
+---
+
+[RALPH-INIT - PRD CREATION MODE]
+
+$ARGUMENTS
+
+## What is PRD?
+
+A PRD (Product Requirements Document) structures your task into discrete user stories, each with:
+- **ID**: Unique identifier (US-001, US-002, etc.)
+- **Title**: Short description
+- **Description**: Full user story
+- **Acceptance Criteria**: What must be true for completion
+- **Priority**: Execution order (1 = highest)
+- **passes**: Boolean tracking completion
+
+## Your Task
+
+Create a \`prd.json\` file in \`.sisyphus/\` directory based on the task description provided.
+
+### Step 1: Analyze the Task
+
+Break down the task into small, focused user stories. Each story should be:
+- Completable in one focused session
+- Independently testable
+- Clear about what "done" looks like
+
+**Right-sized stories:**
+- Add a database column and migration
+- Add a UI component to an existing page
+- Update a server action with new logic
+- Add a filter dropdown to a list
+
+**Too big (split these):**
+- "Build the entire dashboard"
+- "Add authentication"
+- "Refactor the API"
+
+### Step 2: Create prd.json
+
+Write the file to \`.sisyphus/prd.json\` with this structure:
+
+\`\`\`json
+{
+  "project": "[Project Name]",
+  "branchName": "ralph/[feature-name]",
+  "description": "[Overall feature description]",
+  "userStories": [
+    {
+      "id": "US-001",
+      "title": "[Short title]",
+      "description": "As a [user], I want to [action] so that [benefit].",
+      "acceptanceCriteria": [
+        "Criterion 1",
+        "Criterion 2",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 1,
+      "passes": false,
+      "notes": ""
+    }
+  ]
+}
+\`\`\`
+
+### Step 3: Initialize Progress Log
+
+Also create \`.sisyphus/progress.txt\`:
+
+\`\`\`
+# Ralph Progress Log
+Started: [ISO timestamp]
+
+## Codebase Patterns
+(No patterns discovered yet)
+
+---
+
+\`\`\`
+
+### Step 4: Report
+
+After creating the files, output a summary:
+
+\`\`\`
+PRD Created Successfully!
+
+Project: [name]
+Branch: [branch]
+Stories: [count]
+
+Stories to implement:
+1. [US-001] - [title]
+2. [US-002] - [title]
+...
+
+Run \`/ralph-loop\` to start working through these stories.
+\`\`\`
+
+## Quality Guidelines
+
+1. **Acceptance criteria should be verifiable** - Include "Typecheck passes" and "Tests pass" where applicable
+2. **Include browser verification for UI stories** - "Verify in browser" for frontend work
+3. **Keep stories independent** - Avoid dependencies between stories when possible
+4. **Order by priority** - Put foundational work (database, types) before UI
+
+---
+
+Begin analyzing the task and creating the PRD now.`,
+
+  'note.md': `---
+description: Save notes to notepad.md for compaction resilience
+---
+
+# Note Command
+
+Save important context to \`.sisyphus/notepad.md\` that survives conversation compaction.
+
+$ARGUMENTS
+
+## Usage
+
+| Command | Action |
+|---------|--------|
+| \`/note <content>\` | Add to Working Memory with timestamp |
+| \`/note --priority <content>\` | Add to Priority Context (always loaded) |
+| \`/note --manual <content>\` | Add to MANUAL section (never pruned) |
+| \`/note --show\` | Display current notepad contents |
+| \`/note --prune\` | Remove entries older than 7 days |
+| \`/note --clear\` | Clear Working Memory (keep Priority + MANUAL) |
+
+## Sections
+
+### Priority Context (500 char limit)
+- **Always** injected on session start
+- Use for critical facts: "Project uses pnpm", "API in src/api/client.ts"
+- Keep it SHORT - this eats into your context budget
+
+### Working Memory
+- Timestamped session notes
+- Auto-pruned after 7 days
+- Good for: debugging breadcrumbs, temporary findings
+
+### MANUAL
+- Never auto-pruned
+- User-controlled permanent notes
+- Good for: team contacts, deployment info
+
+## Examples
+
+\`\`\`
+/note Found auth bug in UserContext - missing useEffect dependency
+/note --priority Project uses TypeScript strict mode, all files in src/
+/note --manual Contact: api-team@company.com for backend questions
+/note --show
+/note --prune
+\`\`\`
+
+## Behavior
+
+1. Creates \`.sisyphus/notepad.md\` if it doesn't exist
+2. Parses the argument to determine section
+3. Appends content with timestamp (for Working Memory)
+4. Warns if Priority Context exceeds 500 chars
+5. Confirms what was saved
+
+## Integration
+
+Notepad content is automatically loaded on session start:
+- Priority Context: ALWAYS loaded
+- Working Memory: Loaded if recent entries exist
+
+This helps survive conversation compaction without losing critical context.`
 };
 
 // SKILL_DEFINITIONS removed - skills are now only in COMMAND_DEFINITIONS to avoid duplicates

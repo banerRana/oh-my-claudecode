@@ -276,7 +276,7 @@ describe('Installer Constants', () => {
 
     it('should match package.json version', () => {
       // This is a runtime check - VERSION should match the package.json
-      expect(VERSION).toBe('2.4.1');
+      expect(VERSION).toBe('2.6.0');
     });
   });
 

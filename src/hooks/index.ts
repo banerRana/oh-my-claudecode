@@ -25,9 +25,62 @@ export {
   readRalphState,
   writeRalphState,
   clearRalphState,
+  // PRD Integration
+  hasPrd,
+  getPrdCompletionStatus,
+  getRalphContext,
+  setCurrentStory,
+  enablePrdMode,
+  recordStoryProgress,
+  recordPattern,
+  shouldCompleteByPrd,
   type RalphLoopState,
-  type RalphLoopHook
+  type RalphLoopHook,
+  type PRD,
+  type PRDStatus,
+  type UserStory
 } from './ralph-loop/index.js';
+
+export {
+  // Ralph PRD (Structured Task Tracking)
+  readPrd,
+  writePrd,
+  findPrdPath,
+  getPrdStatus,
+  markStoryComplete,
+  markStoryIncomplete,
+  getStory,
+  getNextStory,
+  createPrd,
+  createSimplePrd,
+  initPrd,
+  formatPrdStatus,
+  formatStory,
+  formatPrd,
+  formatNextStoryPrompt,
+  PRD_FILENAME,
+  type UserStory as PrdUserStory
+} from './ralph-prd/index.js';
+
+export {
+  // Ralph Progress (Memory Persistence)
+  readProgress,
+  readProgressRaw,
+  parseProgress,
+  initProgress,
+  appendProgress,
+  addPattern,
+  getPatterns,
+  getRecentLearnings,
+  formatPatternsForContext,
+  formatProgressForContext,
+  formatLearningsForContext,
+  getProgressContext,
+  PROGRESS_FILENAME,
+  type ProgressEntry,
+  type CodebasePattern,
+  type ProgressLog
+} from './ralph-progress/index.js';
 
 export {
   // Todo Continuation
@@ -395,3 +448,47 @@ export {
   detectOracleRejection,
   type VerificationState
 } from './ralph-verifier/index.js';
+
+export {
+  // UltraQA Loop (QA cycling workflow)
+  readUltraQAState,
+  writeUltraQAState,
+  clearUltraQAState,
+  startUltraQA,
+  recordFailure,
+  completeUltraQA,
+  stopUltraQA,
+  cancelUltraQA,
+  getGoalCommand,
+  formatProgressMessage,
+  type UltraQAState,
+  type UltraQAGoalType,
+  type UltraQAOptions,
+  type UltraQAResult
+} from './ultraqa-loop/index.js';
+
+export {
+  // Notepad (Compaction-Resilient Memory)
+  initNotepad,
+  readNotepad,
+  getPriorityContext,
+  getWorkingMemory,
+  getManualSection,
+  setPriorityContext,
+  addWorkingMemoryEntry,
+  addManualEntry,
+  pruneOldEntries,
+  getNotepadStats,
+  formatNotepadContext,
+  formatFullNotepad,
+  getNotepadPath,
+  DEFAULT_CONFIG as NOTEPAD_DEFAULT_CONFIG,
+  NOTEPAD_FILENAME,
+  PRIORITY_HEADER,
+  WORKING_MEMORY_HEADER,
+  MANUAL_HEADER,
+  type NotepadConfig,
+  type NotepadStats,
+  type PriorityContextResult,
+  type PruneResult
+} from './notepad/index.js';

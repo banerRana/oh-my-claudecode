@@ -5,6 +5,176 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.6.0] - 2026-01-19
+
+### 🧠 Compaction-Resilient Memory System (Major Feature)
+
+This release introduces a **three-tier memory system** that survives context compaction, ensuring Claude never loses critical project knowledge during long sessions.
+
+### 🔄 Ralph Loop PRD Support (Major Feature)
+
+Implements structured task tracking inspired by the original [Ralph](https://github.com/snarktank/ralph) project. This brings PRD-based task management to ralph-loop, enabling reliable completion tracking across iterations.
+
+### Added
+
+- **Notepad Memory System** (`src/hooks/notepad/index.ts`) - **Compaction-Resilient Context**
+  - `.sisyphus/notepad.md` persists across context compactions
+  - **Three-tier storage architecture:**
+    - **Priority Context** - Always loaded on session start (max 500 chars, critical discoveries)
+    - **Working Memory** - Session notes with timestamps (auto-pruned after 7 days)
+    - **MANUAL** - User content that is never auto-pruned
+  - **Auto-injection** of Priority Context via SessionStart hook
+  - **Auto-pruning** of old Working Memory entries on session stop
+  - `/note <content>` command for manual note-taking
+
+- **Remember Tag Auto-Capture** (`src/installer/hooks.ts`) - **PostToolUse Hook**
+  - `<remember>content</remember>` - Auto-saves to Working Memory section
+  - `<remember priority>content</remember>` - Auto-saves to Priority Context section
+  - Agents can output remember tags to persist discoveries across compactions
+  - Works without jq dependency (grep/sed fallback)
+  - Installed as `post-tool-use.sh` hook
+
+- **PRD (Product Requirements Document) Support** (`src/hooks/ralph-prd/index.ts`)
+  - `prd.json` structured task format with user stories, acceptance criteria, priorities
+  - Story status tracking (`passes: boolean`) for completion detection
+  - CRUD operations: `readPrd`, `writePrd`, `markStoryComplete`, `getNextStory`
+  - Status calculation: `getPrdStatus` returns completion stats
+  - Formatting utilities for display and context injection
+
+- **Progress Memory System** (`src/hooks/ralph-progress/index.ts`)
+  - Append-only `progress.txt` for memory persistence between iterations
+  - Codebase patterns section for consolidated learnings
+  - Per-story progress entries with implementation notes, files changed, learnings
+  - Pattern extraction and learning retrieval for context injection
+
+- **New Commands**
+  - `/ralph-init <task>` - Scaffold a PRD from task description with auto-generated user stories
+  - `/ultrawork-ralph <task>` - Maximum intensity mode with completion guarantee (ultrawork + ralph loop)
+  - `/ultraqa <goal>` - Autonomous QA cycling workflow (test → verify → fix → repeat)
+  - `/sisyphus-default` - Configure Sisyphus in local project `.claude/CLAUDE.md`
+  - `/sisyphus-default-global` - Configure Sisyphus globally in `~/.claude/CLAUDE.md`
+  - `/note <content>` - Save notes to notepad.md for compaction resilience
+
+- **New Agent Tiers**
+  - `qa-tester-high` (Opus) - Complex integration testing
+
+- **New Hooks**
+  - `PostToolUse` hook for processing Task agent output
+  - Remember tag detection and notepad integration
+
+- **Comprehensive Test Suites**
+  - `src/__tests__/ralph-prd.test.ts` - 29 tests for PRD operations
+  - `src/__tests__/ralph-progress.test.ts` - 30 tests for progress tracking
+  - `src/__tests__/notepad.test.ts` - 40 tests for notepad operations
+  - `src/__tests__/hooks.test.ts` - 18 new tests for design flaw fixes
+  - Total: **358 tests** (up from 231)
+
+### Changed
+
+- **Ralph Loop Enhanced**
+  - Auto-initializes PRD when user runs `/ralph-loop` without existing `prd.json`
+  - PRD-based completion: loop ends when ALL stories have `passes: true`
+  - Context injection includes current story, patterns, and recent learnings
+  - Updated continuation prompts with structured story information
+
+- **Persistent Mode Integration**
+  - `src/hooks/persistent-mode/index.ts` now imports and uses PRD completion checking
+  - Checks PRD status before allowing ralph-loop completion
+  - Clears ultrawork state when PRD loop completes (for ultrawork-ralph)
+
+- **Installer Enhanced**
+  - Now installs `post-tool-use.sh` hook for remember tag processing
+  - Registers `PostToolUse` hook in settings.json
+  - Platform-aware hook installation (bash/node.js)
+
+### Fixed
+
+- **Stale position bug in `addPattern`** - Placeholder removal now happens before calculating separator position
+- **Type safety in `createPrd`** - New `UserStoryInput` type with optional priority field
+- **Recursion guard in `addPattern`** - Prevents infinite loops on repeated initialization failures
+- **Todo-continuation infinite loop** - Added max-attempts counter (5) to prevent agent getting stuck
+- **UltraQA/Ralph-Loop conflict** - Added mutual exclusion to prevent both loops running simultaneously
+- **Agent name prefixing** - Standardized all Task() calls to use `oh-my-claude-sisyphus:` prefix
+- **VERSION constant mismatch** - Fixed installer VERSION from 2.4.1 to 2.6.0
+- **Completion promise inconsistency** - Standardized to `TASK_COMPLETE`
+- **Non-existent /start-work command** - Removed references to command that doesn't exist
+
+### Technical Details
+
+**Notepad.md Structure:**
+```markdown
+# Notepad
+<!-- Auto-managed by Sisyphus. Manual edits preserved in MANUAL section. -->
+
+## Priority Context
+<!-- ALWAYS loaded. Keep under 500 chars. Critical discoveries only. -->
+Project uses pnpm not npm
+API client at src/api/client.ts
+
+## Working Memory
+<!-- Session notes. Auto-pruned after 7 days. -->
+
+### 2026-01-19 10:30
+Discovered auth middleware in src/middleware/auth.ts
+
+### 2026-01-19 09:15
+Database schema uses PostgreSQL with Prisma ORM
+
+## MANUAL
+<!-- User content. Never auto-pruned. -->
+User's permanent notes here
+```
+
+**Remember Tag Usage:**
+```
+Agent output: <remember>Project uses TypeScript strict mode</remember>
+→ Saved to Working Memory with timestamp
+
+Agent output: <remember priority>API base URL is https://api.example.com</remember>
+→ Saved to Priority Context (replaces previous)
+```
+
+**PRD Structure:**
+```json
+{
+  "project": "ProjectName",
+  "branchName": "ralph/feature-name",
+  "description": "Feature description",
+  "userStories": [
+    {
+      "id": "US-001",
+      "title": "Story title",
+      "description": "User story description",
+      "acceptanceCriteria": ["Criterion 1", "Criterion 2"],
+      "priority": 1,
+      "passes": false
+    }
+  ]
+}
+```
+
+**Progress.txt Structure:**
+```
+# Ralph Progress Log
+Started: 2026-01-19T...
+
+## Codebase Patterns
+- Pattern learned from iteration 1
+- Pattern learned from iteration 2
+
+---
+
+## [2026-01-19 12:00] - US-001
+**What was implemented:**
+- Feature A
+- Feature B
+
+**Learnings for future iterations:**
+- Important pattern discovered
+```
+
+---
+
 ## [2.0.1] - 2026-01-13
 
 ### Added
@@ -249,6 +419,8 @@ Task(subagent_type="oracle", model="opus", prompt="Force Opus for this task")
 
 ---
 
+[2.6.0]: https://github.com/Yeachan-Heo/oh-my-claude-sisyphus/compare/v2.5.0...v2.6.0
+[2.0.1]: https://github.com/Yeachan-Heo/oh-my-claude-sisyphus/compare/v2.0.0...v2.0.1
 [1.11.0]: https://github.com/Yeachan-Heo/oh-my-claude-sisyphus/compare/v1.10.0...v1.11.0
 [1.10.0]: https://github.com/Yeachan-Heo/oh-my-claude-sisyphus/compare/v1.9.0...v1.10.0
 [1.9.0]: https://github.com/Yeachan-Heo/oh-my-claude-sisyphus/compare/v1.8.0...v1.9.0

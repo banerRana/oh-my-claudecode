@@ -1,19 +1,32 @@
 ---
-description: Cancel active Ralph Loop
+description: Cancel active Ralph Loop (and ultrawork-ralph if active)
 ---
 
 [RALPH LOOP CANCELLED]
 
-The Ralph Loop has been cancelled. You MUST now deactivate the state file.
+The Ralph Loop has been cancelled. You MUST now deactivate the state files.
 
 ## MANDATORY ACTION
 
-Execute this command to fully cancel the Ralph Loop:
+Execute this command to fully cancel ALL persistent modes:
 
 ```bash
-mkdir -p .sisyphus && echo '{"active": false, "cancelled_at": "'$(date -Iseconds)'", "reason": "User cancelled via /cancel-ralph"}' > .sisyphus/ralph-state.json
+mkdir -p .sisyphus && \
+echo '{"active": false, "cancelled_at": "'$(date -Iseconds)'", "reason": "User cancelled via /cancel-ralph"}' > .sisyphus/ralph-state.json && \
+echo '{"active": false, "cancelled_at": "'$(date -Iseconds)'", "reason": "User cancelled via /cancel-ralph"}' > .sisyphus/ultrawork-state.json && \
+rm -f .sisyphus/ralph-verification.json
 ```
 
 After running this command, you are free to stop working. The persistent mode hook will no longer force continuation.
 
-If you want to start a new loop later, use `/ralph-loop "task description"`.
+## What Was Cancelled
+
+- **Ralph Loop**: Self-referential completion loop
+- **Ultrawork State**: Maximum intensity mode (if active via /ultrawork-ralph)
+- **Verification State**: Any pending oracle verification
+
+## To Start Fresh
+
+- `/ralph-loop "task"` - Start ralph loop only
+- `/ultrawork "task"` - Start ultrawork only
+- `/ultrawork-ralph "task"` - Start combined mode (recommended)

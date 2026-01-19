@@ -28,6 +28,8 @@ echo "✅ CLAUDE.md downloaded successfully to .claude/CLAUDE.md" || \
 echo "❌ Failed to download CLAUDE.md"
 ```
 
+**Note**: The downloaded CLAUDE.md includes Context Persistence instructions with `<remember>` tags for surviving conversation compaction.
+
 **MANDATORY**: Always run this command. Do NOT skip. Do NOT use Write tool.
 
 **FALLBACK** if curl fails:

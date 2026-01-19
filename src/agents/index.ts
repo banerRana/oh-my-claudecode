@@ -36,6 +36,9 @@ export { metisAgent, METIS_PROMPT_METADATA } from './metis.js';
 export { prometheusAgent, PROMETHEUS_PROMPT_METADATA } from './prometheus.js';
 export { qaTesterAgent, QA_TESTER_PROMPT_METADATA } from './qa-tester.js';
 
+// Tiered agent variants (from definitions.ts)
+export { qaTesterHighAgent } from './definitions.js';
+
 // Legacy exports (backward compatibility - getAgentDefinitions and sisyphusSystemPrompt)
 export {
   getAgentDefinitions,

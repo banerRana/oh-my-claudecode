@@ -23,6 +23,10 @@ import {
   readBoulderState,
   getPlanProgress,
 } from '../../features/boulder-state/index.js';
+import {
+  addWorkingMemoryEntry,
+  setPriorityContext,
+} from '../notepad/index.js';
 
 // Re-export constants
 export * from './constants.js';
@@ -218,6 +222,31 @@ export function buildBoulderContinuation(
 }
 
 /**
+ * Detect and process <remember> tags from agent output
+ * <remember>content</remember> -> Working Memory
+ * <remember priority>content</remember> -> Priority Context
+ */
+function processRememberTags(output: string, directory: string): void {
+  // Match priority remember tags
+  const priorityMatches = output.matchAll(/<remember\s+priority>([\s\S]*?)<\/remember>/gi);
+  for (const match of priorityMatches) {
+    const content = match[1].trim();
+    if (content) {
+      setPriorityContext(directory, content);
+    }
+  }
+
+  // Match regular remember tags
+  const regularMatches = output.matchAll(/<remember>([\s\S]*?)<\/remember>/gi);
+  for (const match of regularMatches) {
+    const content = match[1].trim();
+    if (content) {
+      addWorkingMemoryEntry(directory, content);
+    }
+  }
+}
+
+/**
  * Process pre-tool-use hook for orchestrator
  * Returns warning message if orchestrator tries to modify non-allowed paths
  */
@@ -276,6 +305,9 @@ export function processOrchestratorPostTool(
     if (isBackgroundLaunch) {
       return { continue: true };
     }
+
+    // Process <remember> tags from agent output
+    processRememberTags(output, workDir);
 
     // Get git stats and build enhanced output
     const gitStats = getGitDiffStats(workDir);

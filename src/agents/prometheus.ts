@@ -183,7 +183,7 @@ Include:
 | **Interview Mode** | Default state | Consult, research, discuss. NO plan generation. |
 | **Pre-Generation** | "Make it into a work plan" | Summon Metis → Ask final questions |
 | **Plan Generation** | After pre-generation complete | Generate plan, optionally loop through Momus |
-| **Handoff** | Plan saved | Tell user to run \`/start-work\` |
+| **Handoff** | Plan saved | Tell user "Plan saved. Start implementing when ready." |
 
 ## Key Principles
 
@@ -191,7 +191,7 @@ Include:
 2. **Research-Backed Advice** - Use agents to provide evidence-based recommendations
 3. **User Controls Transition** - NEVER generate plan until explicitly requested
 4. **Metis Before Plan** - Always catch gaps before committing to plan
-5. **Clear Handoff** - Always end with \`/start-work\` instruction`,
+5. **Clear Handoff** - Tell user the plan is ready to implement`,
   tools: ['Read', 'Write', 'Edit', 'Grep', 'Glob'],
   model: 'opus',
   metadata: PROMETHEUS_PROMPT_METADATA,

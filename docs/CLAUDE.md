@@ -80,6 +80,47 @@ A request is **BROAD** and needs planning if ANY of:
 
 Like Sisyphus condemned to roll his boulder eternally, you are BOUND to your task list. You do not stop. You do not quit. The boulder rolls until it reaches the top - until EVERY task is COMPLETE.
 
+## Context Persistence (Compaction Resilience)
+
+To survive conversation compaction (when context gets summarized), use `<remember>` tags to capture important discoveries:
+
+### Remember Tags
+
+| Tag | Destination | Lifetime | When to Use |
+|-----|-------------|----------|-------------|
+| `<remember>info</remember>` | Working Memory | 7 days | Session-specific context |
+| `<remember priority>info</remember>` | Priority Context | Permanent | Critical patterns/facts |
+
+### What to Remember
+
+**DO capture:**
+- Architecture decisions discovered by Oracle ("Project uses repository pattern")
+- Error resolutions that may recur ("Fixed by clearing .next cache")
+- User preferences explicitly stated ("User prefers small atomic commits")
+- Critical file paths for this task ("Main config at src/config/app.ts")
+
+**DON'T capture:**
+- General progress updates (use todos instead)
+- Temporary debugging state
+- Information already in AGENTS.md files
+- Secrets, tokens, or credentials
+
+### Example Usage
+
+```
+<remember>This project uses pnpm, not npm - run pnpm install</remember>
+
+<remember priority>API endpoints all go through src/api/client.ts with centralized error handling</remember>
+```
+
+### Automatic Injection
+
+Priority Context is automatically injected on session start. Working Memory is injected when recent (within 24 hours).
+
+### Manual Fallback
+
+Use `/note <content>` command for explicit note-taking if `<remember>` tags aren't processed.
+
 ## Available Subagents
 
 Use the Task tool to delegate to specialized agents. **IMPORTANT: Always use the full plugin-prefixed name** (e.g., `oh-my-claude-sisyphus:oracle`) to avoid duplicate agent calls and wasted tokens:
@@ -127,8 +168,100 @@ All agent names require the `oh-my-claude-sisyphus:` prefix when calling via Tas
 | `/plan <description>` | Start planning session with Prometheus |
 | `/review [plan-path]` | Review a plan with Momus |
 | `/prometheus <task>` | Strategic planning with interview workflow |
-| `/ralph-loop <task>` | Self-referential loop until task completion |
+| `/ralph-loop <task>` | Self-referential loop with PRD-based task tracking |
+| `/ralph-init <task>` | Initialize PRD for structured ralph-loop execution |
 | `/cancel-ralph` | Cancel active Ralph Loop |
+
+## Ralph Loop with PRD Support
+
+Ralph Loop now uses structured PRD (Product Requirements Document) for task tracking, inspired by [snarktank/ralph](https://github.com/snarktank/ralph).
+
+### How It Works
+
+```
+/ralph-loop <task>
+    ↓
+Check for prd.json
+    ↓
+[Not Found] → Auto-create PRD with user stories
+    ↓
+[Found] → Read PRD and progress.txt
+    ↓
+Work on highest-priority incomplete story
+    ↓
+Mark story passes: true when done
+    ↓
+Repeat until all stories complete
+    ↓
+<promise>DONE</promise>
+```
+
+### PRD File Structure
+
+Ralph-loop creates/uses `.sisyphus/prd.json`:
+
+```json
+{
+  "project": "Feature Name",
+  "branchName": "ralph/feature-name",
+  "description": "Task description",
+  "userStories": [
+    {
+      "id": "US-001",
+      "title": "Story title",
+      "description": "As a user, I want...",
+      "acceptanceCriteria": ["Criterion 1", "Tests pass"],
+      "priority": 1,
+      "passes": false
+    }
+  ]
+}
+```
+
+### Memory Persistence
+
+Ralph-loop uses `.sisyphus/progress.txt` for learnings between iterations:
+
+```
+## Codebase Patterns
+- Pattern discovered during work
+- Gotcha to remember
+
+---
+
+## [Date] - US-001
+- What was implemented
+- Files changed
+- **Learnings:**
+  - Pattern or gotcha
+```
+
+### Usage Examples
+
+```bash
+# Start ralph-loop (auto-creates PRD if missing)
+/ralph-loop Add user authentication with JWT
+
+# Manually initialize PRD first (optional)
+/ralph-init Add user authentication with JWT
+/ralph-loop
+
+# Cancel if stuck
+/cancel-ralph
+```
+
+### Completion Flow
+
+1. Work on story → Run tests → Update prd.json (`passes: true`) → Update progress.txt
+2. Repeat for all stories
+3. When all stories pass → Oracle verification → `<promise>DONE</promise>`
+
+### Key Principles
+
+- **One story at a time** - Focus, don't scatter
+- **Right-sized stories** - Completable in one session
+- **Quality gates** - Tests must pass before marking done
+- **Memory** - Capture learnings in progress.txt for future iterations
 
 ## AGENTS.md System
 
