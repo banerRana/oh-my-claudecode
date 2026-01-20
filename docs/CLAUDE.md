@@ -137,7 +137,7 @@ User says "stop", "cancel", "abort" → You determine what to stop:
 | `cancel-ultrawork` | Cancel ultrawork mode | "stop" in ultrawork | `/cancel-ultrawork` |
 | `cancel-ultraqa` | Cancel ultraqa workflow | "stop" in ultraqa | `/cancel-ultraqa` |
 
-### All 20 Agents
+### All 28 Agents
 
 Always use `oh-my-claudecode:` prefix when calling via Task tool.
 
@@ -154,6 +154,10 @@ Always use `oh-my-claudecode:` prefix when calling via Task tool.
 | **Critique** | - | - | `critic` |
 | **Pre-Planning** | - | - | `analyst` |
 | **Testing** | - | `qa-tester` | - |
+| **Security** | `security-reviewer-low` | - | `security-reviewer` |
+| **Build** | `build-fixer-low` | `build-fixer` | - |
+| **TDD** | `tdd-guide-low` | `tdd-guide` | - |
+| **Code Review** | `code-reviewer-low` | - | `code-reviewer` |
 
 ### Agent Selection Guide
 
@@ -175,6 +179,14 @@ Always use `oh-my-claudecode:` prefix when calling via Task tool.
 | Review/critique plan | `critic` | opus |
 | Pre-planning analysis | `analyst` | opus |
 | Test CLI interactively | `qa-tester` | sonnet |
+| Security review | `security-reviewer` | opus |
+| Quick security scan | `security-reviewer-low` | haiku |
+| Fix build errors | `build-fixer` | sonnet |
+| Simple build fix | `build-fixer-low` | haiku |
+| TDD workflow | `tdd-guide` | sonnet |
+| Quick test suggestions | `tdd-guide-low` | haiku |
+| Code review | `code-reviewer` | opus |
+| Quick code check | `code-reviewer-low` | haiku |
 
 ---
 
