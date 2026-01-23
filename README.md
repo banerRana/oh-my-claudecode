@@ -254,6 +254,12 @@ See the [Migration Guide](docs/MIGRATION.md) for details.
 
 ---
 
+## Star History
+
+[![Star History Chart](https://api.star-history.com/svg?repos=Yeachan-Heo/oh-my-claudecode&type=Date)](https://star-history.com/#Yeachan-Heo/oh-my-claudecode&Date)
+
+---
+
 ## License
 
 MIT - see [LICENSE](LICENSE)
