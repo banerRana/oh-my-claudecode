@@ -155,7 +155,7 @@ async function main() {
         const maxAttempts = verificationState.max_verification_attempts || 3;
 
         console.log(JSON.stringify({
-          continue: false,
+          decision: "block",
           reason: `<ralph-verification>
 
 [ORACLE VERIFICATION REQUIRED - Attempt ${attempt}/${maxAttempts}]
@@ -206,7 +206,7 @@ DO NOT output the completion promise again until Oracle approves.
         writeJsonFile(join(directory, '.omc', 'ralph-state.json'), ralphState);
 
         console.log(JSON.stringify({
-          continue: false,
+          decision: "block",
           reason: `<ralph-loop-continuation>
 
 [RALPH LOOP - ITERATION ${newIter}/${maxIter}]
@@ -240,7 +240,7 @@ ${ralphState.prompt ? `Original task: ${ralphState.prompt}` : ''}
       writeJsonFile(join(directory, '.omc', 'ultrawork-state.json'), ultraworkState);
 
       console.log(JSON.stringify({
-        continue: false,
+        decision: "block",
         reason: `<ultrawork-persistence>
 
 [ULTRAWORK MODE STILL ACTIVE - Reinforcement #${newCount}]
@@ -270,7 +270,7 @@ ${ultraworkState.original_prompt ? `Original task: ${ultraworkState.original_pro
     if (totalIncomplete > 0) {
       const itemType = taskCount > 0 ? 'Tasks' : 'todos';
       console.log(JSON.stringify({
-        continue: false,
+        decision: "block",
         reason: `<todo-continuation>
 
 [SYSTEM REMINDER - CONTINUATION]

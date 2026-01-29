@@ -122,7 +122,7 @@ Incomplete ${sourceLabel}s remain (${totalIncomplete} remaining). Continue worki
 - Mark each ${sourceLabel} complete when finished
 - Do not stop until all ${sourceLabel}s are done`;
 
-      console.log(JSON.stringify({ continue: false, reason }));
+      console.log(JSON.stringify({ decision: "block", reason }));
       return;
     }
 
