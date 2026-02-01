@@ -176,10 +176,10 @@ When you believe the task is complete:
 
 2. **Wait for Architect's assessment**
 
-3. **If Architect approves**: Output `<promise>{{PROMISE}}</promise>`
+3. **If Architect approves**: Run `/oh-my-claudecode:cancel` to cleanly exit ralph mode
 4. **If Architect finds issues**: Fix them, then repeat verification
 
-DO NOT output the completion promise without Architect verification.
+DO NOT exit without Architect verification.
 
 ## ZERO TOLERANCE
 
@@ -190,31 +190,21 @@ DO NOT output the completion promise without Architect verification.
 
 ## STATE CLEANUP ON COMPLETION
 
-**IMPORTANT: Delete state files on successful completion - do NOT just set `active: false`**
+**IMPORTANT: Use the cancel skill for proper state cleanup**
 
-When outputting the completion promise after Architect verification:
+When work is complete and Architect verification passes, run `/oh-my-claudecode:cancel` to cleanly exit ralph mode. This handles:
+- Deletion of ralph state files (both local and global)
+- Cleanup of linked ultrawork or ecomode state
+- Proper termination of the ralph loop
 
-```bash
-# Delete ralph state file (and linked ultrawork if applicable)
-rm -f .omc/state/ralph-state.json
-rm -f .omc/state/ralph-verification.json
-rm -f ~/.claude/ralph-state.json
-
-# If ultrawork was linked, delete it too
-rm -f .omc/state/ultrawork-state.json
-rm -f ~/.claude/ultrawork-state.json
-```
-
-This ensures clean state for future sessions. Stale state files with `active: false` should not be left behind.
+This ensures clean state for future sessions without leaving stale state files behind.
 
 ## INSTRUCTIONS
 
 - Review your progress so far
 - Continue from where you left off
 - Use parallel execution and background tasks
-- When FULLY complete AND Architect verified:
-  1. Clean up state files (delete ralph-state.json, ultrawork-state.json)
-  2. Output: <promise>{{PROMISE}}</promise>
+- When FULLY complete AND Architect verified: Run `/oh-my-claudecode:cancel` to cleanly exit and clean up all state files
 - Do not stop until the task is truly done
 
 Original task:

@@ -227,6 +227,7 @@ async function checkRalphLoop(
     };
   }
 
+  // DEPRECATED: Legacy fallback for sessions started before cancel-based completion. Remove in next major version.
   // Check for completion promise in transcript
   const completed = detectCompletionPromise(sessionId || '', state.completion_promise);
 
@@ -294,7 +295,7 @@ CRITICAL INSTRUCTIONS:
 1. Review your progress and the original task
 ${prdInstruction}
 3. Continue from where you left off
-4. When FULLY complete, output: <promise>${newState.completion_promise}</promise>
+4. When FULLY complete (after Architect verification), run \`/oh-my-claudecode:cancel\` to cleanly exit and clean up state files. If cancel fails, retry with \`/oh-my-claudecode:cancel --force\`.
 5. Do NOT stop until the task is truly done
 
 ${newState.prompt ? `Original task: ${newState.prompt}` : ''}

@@ -7,6 +7,12 @@ description: Cancel any active OMC mode (autopilot, ralph, ultrawork, ecomode, u
 
 Intelligent cancellation that detects and cancels the active OMC mode.
 
+**The cancel skill is the standard way to complete and exit any OMC mode.**
+When the stop hook detects work is complete, it instructs the LLM to invoke
+this skill for proper state cleanup. If cancel fails or is interrupted,
+retry with `--force` flag, or wait for the 2-hour staleness timeout as
+a last resort.
+
 ## What It Does
 
 Automatically detects which mode is active and cancels it:

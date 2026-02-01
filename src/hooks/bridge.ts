@@ -279,6 +279,7 @@ async function processRalph(input: HookInput): Promise<HookOutput> {
     };
   }
 
+  // DEPRECATED: Legacy fallback for sessions started before cancel-based completion. Remove in next major version.
   // Check for completion promise in transcript
   const completed = detectCompletionPromise(sessionId, state.completion_promise);
 
@@ -326,7 +327,7 @@ Your previous attempt did not output the completion promise. Continue working on
 IMPORTANT:
 - Review your progress so far
 - Continue from where you left off
-- When FULLY complete, output: <promise>${newState.completion_promise}</promise>
+- When FULLY complete (after Architect verification), run \`/oh-my-claudecode:cancel\` to cleanly exit and clean up state files. If cancel fails, retry with \`/oh-my-claudecode:cancel --force\`.
 - Do not stop until the task is truly done
 
 Original task:

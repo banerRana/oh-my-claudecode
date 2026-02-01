@@ -170,10 +170,6 @@ Signal: **AUTOPILOT_COMPLETE**
 
 ## Completion
 
-When all phases complete successfully, output:
+When all phases complete successfully, run `/oh-my-claudecode:cancel` to cleanly exit autopilot and clean up state files.
 
-```
-<promise>TASK_COMPLETE</promise>
-```
-
-And display the autopilot summary.
+Then display the autopilot summary.

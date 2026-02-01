@@ -243,7 +243,7 @@ async function main() {
 
         console.log(JSON.stringify({
           decision: 'block',
-          reason: `[RALPH LOOP - ITERATION ${iteration + 1}/${maxIter}] Work is NOT done. Continue. When complete, output: <promise>${ralph.state.completion_promise || 'DONE'}</promise>\n${ralph.state.prompt ? `Task: ${ralph.state.prompt}` : ''}`
+          reason: `[RALPH LOOP - ITERATION ${iteration + 1}/${maxIter}] Work is NOT done. Continue working.\nWhen FULLY complete (after Architect verification), run /oh-my-claudecode:cancel to cleanly exit ralph mode and clean up all state files. If cancel fails, retry with /oh-my-claudecode:cancel --force.\n${ralph.state.prompt ? `Task: ${ralph.state.prompt}` : ''}`
         }));
         return;
       }
@@ -261,7 +261,7 @@ async function main() {
 
           console.log(JSON.stringify({
             decision: 'block',
-            reason: `[AUTOPILOT - Phase: ${phase}] Autopilot not complete. Continue working.`
+            reason: `[AUTOPILOT - Phase: ${phase}] Autopilot not complete. Continue working. When all phases are complete, run /oh-my-claudecode:cancel to cleanly exit and clean up state files. If cancel fails, retry with /oh-my-claudecode:cancel --force.`
           }));
           return;
         }
@@ -281,7 +281,7 @@ async function main() {
 
           console.log(JSON.stringify({
             decision: 'block',
-            reason: `[ULTRAPILOT] ${incomplete} workers still running. Continue.`
+            reason: `[ULTRAPILOT] ${incomplete} workers still running. Continue working. When all workers complete, run /oh-my-claudecode:cancel to cleanly exit and clean up state files. If cancel fails, retry with /oh-my-claudecode:cancel --force.`
           }));
           return;
         }
@@ -300,7 +300,7 @@ async function main() {
 
           console.log(JSON.stringify({
             decision: 'block',
-            reason: `[SWARM ACTIVE] ${pending} tasks remain. Continue working.`
+            reason: `[SWARM ACTIVE] ${pending} tasks remain. Continue working. When all tasks are done, run /oh-my-claudecode:cancel to cleanly exit and clean up state files. If cancel fails, retry with /oh-my-claudecode:cancel --force.`
           }));
           return;
         }
@@ -320,7 +320,7 @@ async function main() {
 
           console.log(JSON.stringify({
             decision: 'block',
-            reason: `[PIPELINE - Stage ${currentStage + 1}/${totalStages}] Pipeline not complete. Continue.`
+            reason: `[PIPELINE - Stage ${currentStage + 1}/${totalStages}] Pipeline not complete. Continue working. When all stages complete, run /oh-my-claudecode:cancel to cleanly exit and clean up state files. If cancel fails, retry with /oh-my-claudecode:cancel --force.`
           }));
           return;
         }
@@ -338,7 +338,7 @@ async function main() {
 
         console.log(JSON.stringify({
           decision: 'block',
-          reason: `[ULTRAQA - Cycle ${cycle + 1}/${maxCycles}] Tests not all passing. Continue fixing.`
+          reason: `[ULTRAQA - Cycle ${cycle + 1}/${maxCycles}] Tests not all passing. Continue fixing. When all tests pass, run /oh-my-claudecode:cancel to cleanly exit and clean up state files. If cancel fails, retry with /oh-my-claudecode:cancel --force.`
         }));
         return;
       }
@@ -360,19 +360,24 @@ async function main() {
       ultrawork.state.last_checked_at = new Date().toISOString();
       writeJsonFile(ultrawork.path, ultrawork.state);
 
-      let reason = `[ULTRAWORK #${newCount}] Mode active - continue working.`;
+      let reason = `[ULTRAWORK #${newCount}/${maxReinforcements}] Mode active.`;
+
       if (totalIncomplete > 0) {
         const itemType = taskCount > 0 ? 'Tasks' : 'todos';
-        reason = `[ULTRAWORK #${newCount}] ${totalIncomplete} incomplete ${itemType}. Continue working.`;
+        reason += ` ${totalIncomplete} incomplete ${itemType} remain. Continue working.`;
+      } else if (newCount >= 3) {
+        // Only suggest cancel after minimum iterations (guard against no-tasks-created scenario)
+        reason += ` If all work is complete, run /oh-my-claudecode:cancel to cleanly exit ultrawork mode and clean up state files. If cancel fails, retry with /oh-my-claudecode:cancel --force. Otherwise, continue working.`;
+      } else {
+        // Early iterations with no tasks yet - just tell LLM to continue
+        reason += ` Continue working - create Tasks to track your progress.`;
       }
+
       if (ultrawork.state.original_prompt) {
         reason += `\nTask: ${ultrawork.state.original_prompt}`;
       }
 
-      console.log(JSON.stringify({
-        decision: 'block',
-        reason: reason
-      }));
+      console.log(JSON.stringify({ decision: 'block', reason }));
       return;
     }
 
@@ -391,16 +396,20 @@ async function main() {
       ecomode.state.last_checked_at = new Date().toISOString();
       writeJsonFile(ecomode.path, ecomode.state);
 
-      let reason = `[ECOMODE #${newCount}] Mode active - continue working.`;
+      let reason = `[ECOMODE #${newCount}/${maxReinforcements}] Mode active.`;
+
       if (totalIncomplete > 0) {
         const itemType = taskCount > 0 ? 'Tasks' : 'todos';
-        reason = `[ECOMODE #${newCount}] ${totalIncomplete} incomplete ${itemType}. Continue working.`;
+        reason += ` ${totalIncomplete} incomplete ${itemType} remain. Continue working.`;
+      } else if (newCount >= 3) {
+        // Only suggest cancel after minimum iterations (guard against no-tasks-created scenario)
+        reason += ` If all work is complete, run /oh-my-claudecode:cancel to cleanly exit ecomode and clean up state files. If cancel fails, retry with /oh-my-claudecode:cancel --force. Otherwise, continue working.`;
+      } else {
+        // Early iterations with no tasks yet - just tell LLM to continue
+        reason += ` Continue working - create Tasks to track your progress.`;
       }
 
-      console.log(JSON.stringify({
-        decision: 'block',
-        reason: reason
-      }));
+      console.log(JSON.stringify({ decision: 'block', reason }));
       return;
     }
 

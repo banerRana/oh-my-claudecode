@@ -145,13 +145,9 @@ Track state in `.omc/ultrapilot-state.json`:
 
 ## Completion
 
-When all phases complete and Architect validates:
+When all phases complete and Architect validates, run `/oh-my-claudecode:cancel` to cleanly exit ultrapilot and clean up state files.
 
-```
-<promise>ULTRAPILOT_COMPLETE</promise>
-```
-
-Display summary with:
+Then display summary with:
 - Time savings vs sequential
 - Workers spawned
 - Files modified per worker
