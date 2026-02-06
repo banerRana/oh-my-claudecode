@@ -186,7 +186,8 @@ export function initAutopilot(
     phase_durations: {},
     total_agents_spawned: 0,
     wisdom_entries: 0,
-    session_id: sessionId
+    session_id: sessionId,
+    project_path: directory
   };
 
   ensureAutopilotDir(directory);
@@ -519,9 +520,9 @@ The transition handler has:
 3. Started UltraQA in 'tests' mode
 
 You are now in QA phase. Run the QA cycle:
-1. Build: npm run build (or equivalent)
-2. Lint: npm run lint (or equivalent)
-3. Test: npm test (or equivalent)
+1. Build: Run the project's build command
+2. Lint: Run the project's lint command
+3. Test: Run the project's test command
 
 Fix any failures and repeat until all pass.
 

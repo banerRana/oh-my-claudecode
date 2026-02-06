@@ -7,6 +7,56 @@ description: Setup and configure oh-my-claudecode (the ONLY command you need to 
 
 This is the **only command you need to learn**. After running this, everything else is automatic.
 
+## Pre-Setup Check: Already Configured?
+
+**CRITICAL**: Before doing anything else, check if setup has already been completed. This prevents users from having to re-run the full setup wizard after every update.
+
+```bash
+# Check if setup was already completed
+CONFIG_FILE="$HOME/.claude/.omc-config.json"
+
+if [ -f "$CONFIG_FILE" ]; then
+  SETUP_COMPLETED=$(jq -r '.setupCompleted // empty' "$CONFIG_FILE" 2>/dev/null)
+  SETUP_VERSION=$(jq -r '.setupVersion // empty' "$CONFIG_FILE" 2>/dev/null)
+
+  if [ -n "$SETUP_COMPLETED" ] && [ "$SETUP_COMPLETED" != "null" ]; then
+    echo "OMC setup was already completed on: $SETUP_COMPLETED"
+    [ -n "$SETUP_VERSION" ] && echo "Setup version: $SETUP_VERSION"
+    ALREADY_CONFIGURED="true"
+  fi
+fi
+```
+
+### If Already Configured (and no --force flag)
+
+If `ALREADY_CONFIGURED` is true AND the user did NOT pass `--force`, `--local`, or `--global` flags:
+
+Use AskUserQuestion to prompt:
+
+**Question:** "OMC is already configured. What would you like to do?"
+
+**Options:**
+1. **Update CLAUDE.md only** - Download latest CLAUDE.md without re-running full setup
+2. **Run full setup again** - Go through the complete setup wizard
+3. **Cancel** - Exit without changes
+
+**If user chooses "Update CLAUDE.md only":**
+- Detect if local (.claude/CLAUDE.md) or global (~/.claude/CLAUDE.md) config exists
+- If local exists, run the download/merge script from Step 2A
+- If only global exists, run the download/merge script from Step 2B
+- Skip all other steps
+- Report success and exit
+
+**If user chooses "Run full setup again":**
+- Continue with Step 0 (Resume Detection) below
+
+**If user chooses "Cancel":**
+- Exit without any changes
+
+### Force Flag Override
+
+If user passes `--force` flag, skip this check and proceed directly to setup.
+
 ## Graceful Interrupt Handling
 
 **IMPORTANT**: This setup process saves progress after each step. If interrupted (Ctrl+C or connection loss), the setup can resume from where it left off.
@@ -116,9 +166,10 @@ This skill handles three scenarios:
 ## Mode Detection
 
 Check for flags in the user's invocation:
-- If `--local` flag present → Skip to Local Configuration (Step 2A)
-- If `--global` flag present → Skip to Global Configuration (Step 2B)
-- If no flags → Run Initial Setup wizard (Step 1)
+- If `--local` flag present → Skip Pre-Setup Check, go to Local Configuration (Step 2A)
+- If `--global` flag present → Skip Pre-Setup Check, go to Global Configuration (Step 2B)
+- If `--force` flag present → Skip Pre-Setup Check, run Initial Setup wizard (Step 1)
+- If no flags → Run Pre-Setup Check first, then Initial Setup wizard (Step 1) if needed
 
 ## Step 1: Initial Setup Wizard (Default Behavior)
 
@@ -146,23 +197,81 @@ mkdir -p .claude && echo ".claude directory ready"
 ### Download Fresh CLAUDE.md
 
 ```bash
-# Extract old version before download
-OLD_VERSION=$(grep -m1 "^# oh-my-claudecode" .claude/CLAUDE.md 2>/dev/null | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' || echo "none")
+# Define target path
+TARGET_PATH=".claude/CLAUDE.md"
 
-# Backup existing CLAUDE.md before overwriting (if it exists)
-if [ -f ".claude/CLAUDE.md" ]; then
-  BACKUP_DATE=$(date +%Y-%m-%d)
-  BACKUP_PATH=".claude/CLAUDE.md.backup.${BACKUP_DATE}"
-  cp .claude/CLAUDE.md "$BACKUP_PATH"
+# Extract old version before download
+OLD_VERSION=$(grep -m1 "^# oh-my-claudecode" "$TARGET_PATH" 2>/dev/null | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' || echo "none")
+
+# Backup existing
+if [ -f "$TARGET_PATH" ]; then
+  BACKUP_DATE=$(date +%Y-%m-%d_%H%M%S)
+  BACKUP_PATH="${TARGET_PATH}.backup.${BACKUP_DATE}"
+  cp "$TARGET_PATH" "$BACKUP_PATH"
   echo "Backed up existing CLAUDE.md to $BACKUP_PATH"
 fi
 
-# Download fresh CLAUDE.md from GitHub
-curl -fsSL "https://raw.githubusercontent.com/Yeachan-Heo/oh-my-claudecode/main/docs/CLAUDE.md" -o .claude/CLAUDE.md && \
-echo "Downloaded CLAUDE.md to .claude/CLAUDE.md"
+# Download fresh OMC content to temp file
+TEMP_OMC=$(mktemp /tmp/omc-claude-XXXXXX.md)
+trap 'rm -f "$TEMP_OMC"' EXIT
+curl -fsSL "https://raw.githubusercontent.com/Yeachan-Heo/oh-my-claudecode/main/docs/CLAUDE.md" -o "$TEMP_OMC"
+
+if [ ! -s "$TEMP_OMC" ]; then
+  echo "ERROR: Failed to download CLAUDE.md. Aborting."
+  rm -f "$TEMP_OMC"
+  return 1
+fi
+
+# Strip existing markers from downloaded content (idempotency)
+if grep -q '<!-- OMC:START -->' "$TEMP_OMC"; then
+  # Extract content between markers
+  sed -n '/<!-- OMC:START -->/,/<!-- OMC:END -->/{//!p}' "$TEMP_OMC" > "${TEMP_OMC}.clean"
+  mv "${TEMP_OMC}.clean" "$TEMP_OMC"
+fi
+
+if [ ! -f "$TARGET_PATH" ]; then
+  # Fresh install: wrap in markers
+  {
+    echo '<!-- OMC:START -->'
+    cat "$TEMP_OMC"
+    echo '<!-- OMC:END -->'
+  } > "$TARGET_PATH"
+  rm -f "$TEMP_OMC"
+  echo "Installed CLAUDE.md (fresh)"
+else
+  # Merge: preserve user content outside OMC markers
+  if grep -q '<!-- OMC:START -->' "$TARGET_PATH"; then
+    # Has markers: replace OMC section, keep user content
+    BEFORE_OMC=$(sed -n '1,/<!-- OMC:START -->/{ /<!-- OMC:START -->/!p }' "$TARGET_PATH")
+    AFTER_OMC=$(sed -n '/<!-- OMC:END -->/,${  /<!-- OMC:END -->/!p }' "$TARGET_PATH")
+    {
+      [ -n "$BEFORE_OMC" ] && printf '%s\n' "$BEFORE_OMC"
+      echo '<!-- OMC:START -->'
+      cat "$TEMP_OMC"
+      echo '<!-- OMC:END -->'
+      [ -n "$AFTER_OMC" ] && printf '%s\n' "$AFTER_OMC"
+    } > "${TARGET_PATH}.tmp"
+    mv "${TARGET_PATH}.tmp" "$TARGET_PATH"
+    echo "Updated OMC section (user customizations preserved)"
+  else
+    # No markers: wrap new content in markers, append old content as user section
+    OLD_CONTENT=$(cat "$TARGET_PATH")
+    {
+      echo '<!-- OMC:START -->'
+      cat "$TEMP_OMC"
+      echo '<!-- OMC:END -->'
+      echo ""
+      echo "<!-- User customizations (migrated from previous CLAUDE.md) -->"
+      printf '%s\n' "$OLD_CONTENT"
+    } > "${TARGET_PATH}.tmp"
+    mv "${TARGET_PATH}.tmp" "$TARGET_PATH"
+    echo "Migrated existing CLAUDE.md (added OMC markers, preserved old content)"
+  fi
+  rm -f "$TEMP_OMC"
+fi
 
 # Extract new version and report
-NEW_VERSION=$(grep -m1 "^# oh-my-claudecode" .claude/CLAUDE.md 2>/dev/null | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' || echo "unknown")
+NEW_VERSION=$(grep -m1 "^# oh-my-claudecode" "$TARGET_PATH" 2>/dev/null | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' || echo "unknown")
 if [ "$OLD_VERSION" = "none" ]; then
   echo "Installed CLAUDE.md: $NEW_VERSION"
 elif [ "$OLD_VERSION" = "$NEW_VERSION" ]; then
@@ -227,23 +336,81 @@ Do not continue to HUD setup or other steps.
 ### Download Fresh CLAUDE.md
 
 ```bash
-# Extract old version before download
-OLD_VERSION=$(grep -m1 "^# oh-my-claudecode" ~/.claude/CLAUDE.md 2>/dev/null | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' || echo "none")
+# Define target path
+TARGET_PATH="$HOME/.claude/CLAUDE.md"
 
-# Backup existing CLAUDE.md before overwriting (if it exists)
-if [ -f "$HOME/.claude/CLAUDE.md" ]; then
-  BACKUP_DATE=$(date +%Y-%m-%d)
-  BACKUP_PATH="$HOME/.claude/CLAUDE.md.backup.${BACKUP_DATE}"
-  cp "$HOME/.claude/CLAUDE.md" "$BACKUP_PATH"
+# Extract old version before download
+OLD_VERSION=$(grep -m1 "^# oh-my-claudecode" "$TARGET_PATH" 2>/dev/null | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' || echo "none")
+
+# Backup existing
+if [ -f "$TARGET_PATH" ]; then
+  BACKUP_DATE=$(date +%Y-%m-%d_%H%M%S)
+  BACKUP_PATH="${TARGET_PATH}.backup.${BACKUP_DATE}"
+  cp "$TARGET_PATH" "$BACKUP_PATH"
   echo "Backed up existing CLAUDE.md to $BACKUP_PATH"
 fi
 
-# Download fresh CLAUDE.md to global config
-curl -fsSL "https://raw.githubusercontent.com/Yeachan-Heo/oh-my-claudecode/main/docs/CLAUDE.md" -o ~/.claude/CLAUDE.md && \
-echo "Downloaded CLAUDE.md to ~/.claude/CLAUDE.md"
+# Download fresh OMC content to temp file
+TEMP_OMC=$(mktemp /tmp/omc-claude-XXXXXX.md)
+trap 'rm -f "$TEMP_OMC"' EXIT
+curl -fsSL "https://raw.githubusercontent.com/Yeachan-Heo/oh-my-claudecode/main/docs/CLAUDE.md" -o "$TEMP_OMC"
+
+if [ ! -s "$TEMP_OMC" ]; then
+  echo "ERROR: Failed to download CLAUDE.md. Aborting."
+  rm -f "$TEMP_OMC"
+  return 1
+fi
+
+# Strip existing markers from downloaded content (idempotency)
+if grep -q '<!-- OMC:START -->' "$TEMP_OMC"; then
+  # Extract content between markers
+  sed -n '/<!-- OMC:START -->/,/<!-- OMC:END -->/{//!p}' "$TEMP_OMC" > "${TEMP_OMC}.clean"
+  mv "${TEMP_OMC}.clean" "$TEMP_OMC"
+fi
+
+if [ ! -f "$TARGET_PATH" ]; then
+  # Fresh install: wrap in markers
+  {
+    echo '<!-- OMC:START -->'
+    cat "$TEMP_OMC"
+    echo '<!-- OMC:END -->'
+  } > "$TARGET_PATH"
+  rm -f "$TEMP_OMC"
+  echo "Installed CLAUDE.md (fresh)"
+else
+  # Merge: preserve user content outside OMC markers
+  if grep -q '<!-- OMC:START -->' "$TARGET_PATH"; then
+    # Has markers: replace OMC section, keep user content
+    BEFORE_OMC=$(sed -n '1,/<!-- OMC:START -->/{ /<!-- OMC:START -->/!p }' "$TARGET_PATH")
+    AFTER_OMC=$(sed -n '/<!-- OMC:END -->/,${  /<!-- OMC:END -->/!p }' "$TARGET_PATH")
+    {
+      [ -n "$BEFORE_OMC" ] && printf '%s\n' "$BEFORE_OMC"
+      echo '<!-- OMC:START -->'
+      cat "$TEMP_OMC"
+      echo '<!-- OMC:END -->'
+      [ -n "$AFTER_OMC" ] && printf '%s\n' "$AFTER_OMC"
+    } > "${TARGET_PATH}.tmp"
+    mv "${TARGET_PATH}.tmp" "$TARGET_PATH"
+    echo "Updated OMC section (user customizations preserved)"
+  else
+    # No markers: wrap new content in markers, append old content as user section
+    OLD_CONTENT=$(cat "$TARGET_PATH")
+    {
+      echo '<!-- OMC:START -->'
+      cat "$TEMP_OMC"
+      echo '<!-- OMC:END -->'
+      echo ""
+      echo "<!-- User customizations (migrated from previous CLAUDE.md) -->"
+      printf '%s\n' "$OLD_CONTENT"
+    } > "${TARGET_PATH}.tmp"
+    mv "${TARGET_PATH}.tmp" "$TARGET_PATH"
+    echo "Migrated existing CLAUDE.md (added OMC markers, preserved old content)"
+  fi
+  rm -f "$TEMP_OMC"
+fi
 
 # Extract new version and report
-NEW_VERSION=$(grep -m1 "^# oh-my-claudecode" ~/.claude/CLAUDE.md 2>/dev/null | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' || echo "unknown")
+NEW_VERSION=$(grep -m1 "^# oh-my-claudecode" "$TARGET_PATH" 2>/dev/null | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' || echo "unknown")
 if [ "$OLD_VERSION" = "none" ]; then
   echo "Installed CLAUDE.md: $NEW_VERSION"
 elif [ "$OLD_VERSION" = "$NEW_VERSION" ]; then
@@ -436,6 +603,15 @@ echo "Default execution mode set to: USER_CHOICE"
 
 **Note**: This preference ONLY affects generic keywords ("fast", "parallel"). Explicit keywords ("ulw", "eco") always override this preference.
 
+### Optional: Disable Ecomode Entirely
+
+If the user wants to disable ecomode completely (so ecomode keywords are ignored), add to the config:
+
+```bash
+echo "$EXISTING" | jq '. + {ecomode: {enabled: false}}' > "$CONFIG_FILE"
+echo "Ecomode disabled completely"
+```
+
 ## Step 3.8: Install CLI Analytics Tools (Optional)
 
 The OMC CLI provides standalone token analytics commands (`omc stats`, `omc agents`, `omc tui`).
@@ -455,6 +631,67 @@ All functionality is available through the plugin system:
 - Use `/oh-my-claudecode:doctor` for diagnostics
 
 Skip this step - the plugin provides all features.
+
+## Step 3.8.5: Select Task Management Tool
+
+First, detect available task tools:
+
+```bash
+# Detect beads (bd)
+BD_VERSION=""
+if command -v bd &>/dev/null; then
+  BD_VERSION=$(bd --version 2>/dev/null | head -1 || echo "installed")
+fi
+
+# Detect beads-rust (br)
+BR_VERSION=""
+if command -v br &>/dev/null; then
+  BR_VERSION=$(br --version 2>/dev/null | head -1 || echo "installed")
+fi
+
+# Report findings
+if [ -n "$BD_VERSION" ]; then
+  echo "Found beads (bd): $BD_VERSION"
+fi
+if [ -n "$BR_VERSION" ]; then
+  echo "Found beads-rust (br): $BR_VERSION"
+fi
+if [ -z "$BD_VERSION" ] && [ -z "$BR_VERSION" ]; then
+  echo "No external task tools found. Using built-in Tasks."
+fi
+```
+
+If **neither** beads nor beads-rust is detected, skip this step (default to built-in).
+
+If beads or beads-rust is detected, use AskUserQuestion:
+
+**Question:** "Which task management tool should I use for tracking work?"
+
+**Options:**
+1. **Built-in Tasks (default)** - Use Claude Code's native TaskCreate/TodoWrite. Tasks are session-only.
+2. **Beads (bd)** - Git-backed persistent tasks. Survives across sessions. [Only if detected]
+3. **Beads-Rust (br)** - Lightweight Rust port of beads. [Only if detected]
+
+(Only show options 2/3 if the corresponding tool is detected)
+
+Store the preference:
+
+```bash
+CONFIG_FILE="$HOME/.claude/.omc-config.json"
+mkdir -p "$(dirname "$CONFIG_FILE")"
+
+if [ -f "$CONFIG_FILE" ]; then
+  EXISTING=$(cat "$CONFIG_FILE")
+else
+  EXISTING='{}'
+fi
+
+# USER_CHOICE is "builtin", "beads", or "beads-rust" based on user selection
+echo "$EXISTING" | jq --arg tool "USER_CHOICE" '. + {taskTool: $tool, taskToolConfig: {injectInstructions: true, useMcp: false}}' > "$CONFIG_FILE"
+echo "Task tool set to: USER_CHOICE"
+```
+
+**Note:** The beads context instructions will be injected automatically on the next session start. No restart is needed for config to take effect.
 
 ## Step 4: Verify Plugin Installation
 
@@ -600,23 +837,52 @@ echo "  https://github.com/Yeachan-Heo/oh-my-claudecode"
 echo ""
 ```
 
-### Clear Setup State on Completion
+### Clear Setup State and Mark Completion
 
-After Step 8 completes (regardless of star choice), clear the setup state:
+After Step 8 completes (regardless of star choice), clear the temporary state and mark setup as completed:
 
 ```bash
-# Setup complete - clear state file
+# Setup complete - clear temporary state file
 rm -f ".omc/state/setup-state.json"
+
+# Mark setup as completed in persistent config (prevents re-running full setup on updates)
+CONFIG_FILE="$HOME/.claude/.omc-config.json"
+mkdir -p "$(dirname "$CONFIG_FILE")"
+
+# Get current OMC version from CLAUDE.md
+OMC_VERSION=""
+if [ -f ".claude/CLAUDE.md" ]; then
+  OMC_VERSION=$(grep -m1 "^# oh-my-claudecode" .claude/CLAUDE.md 2>/dev/null | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' || echo "unknown")
+elif [ -f "$HOME/.claude/CLAUDE.md" ]; then
+  OMC_VERSION=$(grep -m1 "^# oh-my-claudecode" "$HOME/.claude/CLAUDE.md" 2>/dev/null | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' || echo "unknown")
+fi
+
+if [ -f "$CONFIG_FILE" ]; then
+  EXISTING=$(cat "$CONFIG_FILE")
+else
+  EXISTING='{}'
+fi
+
+# Add setupCompleted timestamp and version
+echo "$EXISTING" | jq --arg ts "$(date -Iseconds)" --arg ver "$OMC_VERSION" \
+  '. + {setupCompleted: $ts, setupVersion: $ver}' > "$CONFIG_FILE"
+
 echo "Setup completed successfully!"
+echo "Note: Future updates will only refresh CLAUDE.md, not the full setup wizard."
 ```
 
 ## Keeping Up to Date
 
-After installing oh-my-claudecode updates (via npm or plugin update), run:
-- `/oh-my-claudecode:omc-setup --local` to update project config
-- `/oh-my-claudecode:omc-setup --global` to update global config
+After installing oh-my-claudecode updates (via npm or plugin update):
 
-This ensures you have the newest features and agent configurations.
+**Automatic**: Just run `/oh-my-claudecode:omc-setup` - it will detect you've already configured and offer a quick "Update CLAUDE.md only" option that skips the full wizard.
+
+**Manual options**:
+- `/oh-my-claudecode:omc-setup --local` to update project config only
+- `/oh-my-claudecode:omc-setup --global` to update global config only
+- `/oh-my-claudecode:omc-setup --force` to re-run the full wizard (reconfigure preferences)
+
+This ensures you have the newest features and agent configurations without the token cost of repeating the full setup.
 
 ## Help Text
 
@@ -626,9 +892,10 @@ When user runs `/oh-my-claudecode:omc-setup --help` or just `--help`, display:
 OMC Setup - Configure oh-my-claudecode
 
 USAGE:
-  /oh-my-claudecode:omc-setup           Run initial setup wizard
+  /oh-my-claudecode:omc-setup           Run initial setup wizard (or update if already configured)
   /oh-my-claudecode:omc-setup --local   Configure local project (.claude/CLAUDE.md)
   /oh-my-claudecode:omc-setup --global  Configure global settings (~/.claude/CLAUDE.md)
+  /oh-my-claudecode:omc-setup --force   Force full setup wizard even if already configured
   /oh-my-claudecode:omc-setup --help    Show this help
 
 MODES:
@@ -638,6 +905,7 @@ MODES:
     - Sets up HUD statusline
     - Checks for updates
     - Offers MCP server configuration
+    - If already configured, offers quick update option
 
   Local Configuration (--local)
     - Downloads fresh CLAUDE.md to ./.claude/
@@ -652,10 +920,16 @@ MODES:
     - Cleans up legacy hooks
     - Use this to update global config after OMC upgrades
 
+  Force Full Setup (--force)
+    - Bypasses the "already configured" check
+    - Runs the complete setup wizard from scratch
+    - Use when you want to reconfigure preferences
+
 EXAMPLES:
-  /oh-my-claudecode:omc-setup           # First time setup
+  /oh-my-claudecode:omc-setup           # First time setup (or update CLAUDE.md if configured)
   /oh-my-claudecode:omc-setup --local   # Update this project
   /oh-my-claudecode:omc-setup --global  # Update all projects
+  /oh-my-claudecode:omc-setup --force   # Re-run full setup wizard
 
 For more info: https://github.com/Yeachan-Heo/oh-my-claudecode
 ```

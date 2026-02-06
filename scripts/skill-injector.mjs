@@ -258,7 +258,7 @@ async function main() {
     try { data = JSON.parse(input); } catch { /* ignore parse errors */ }
 
     const prompt = data.prompt || '';
-    const sessionId = data.sessionId || 'unknown';
+    const sessionId = data.session_id || data.sessionId || 'unknown';
     const directory = data.cwd || process.cwd();
 
     // Skip if no prompt
@@ -268,6 +268,16 @@ async function main() {
     }
 
     const matchingSkills = findMatchingSkills(prompt, directory, sessionId);
+
+    // Record skill activations to flow trace (best-effort)
+    if (matchingSkills.length > 0) {
+      try {
+        const { recordSkillActivated } = await import('../dist/hooks/subagent-tracker/flow-tracer.js');
+        for (const skill of matchingSkills) {
+          recordSkillActivated(directory, sessionId, skill.name, skill.scope || 'learned');
+        }
+      } catch { /* silent - trace is best-effort */ }
+    }
 
     if (matchingSkills.length > 0) {
       console.log(JSON.stringify({

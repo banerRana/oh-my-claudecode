@@ -18,6 +18,8 @@ export interface UltraworkState {
   original_prompt: string;
   /** Session ID the mode is bound to */
   session_id?: string;
+  /** Project path for isolation */
+  project_path?: string;
   /** Number of times the mode has been reinforced (for metrics) */
   reinforcement_count: number;
   /** Last time the mode was checked/reinforced */
@@ -65,7 +67,8 @@ export function readUltraworkState(directory?: string): UltraworkState | null {
     try {
       const content = readFileSync(localStateFile, 'utf-8');
       return JSON.parse(content);
-    } catch {
+    } catch (error) {
+      console.error('[ultrawork] Failed to read state file:', error);
       return null;
     }
   }
@@ -80,7 +83,7 @@ export function writeUltraworkState(state: UltraworkState, directory?: string): 
   try {
     ensureStateDir(directory);
     const localStateFile = getStateFilePath(directory);
-    writeFileSync(localStateFile, JSON.stringify(state, null, 2));
+    writeFileSync(localStateFile, JSON.stringify(state, null, 2), { mode: 0o600 });
     return true;
   } catch {
     return false;
@@ -101,6 +104,7 @@ export function activateUltrawork(
     started_at: new Date().toISOString(),
     original_prompt: prompt,
     session_id: sessionId,
+    project_path: directory || process.cwd(),
     reinforcement_count: 0,
     last_checked_at: new Date().toISOString(),
     linked_to_ralph: linkedToRalph
@@ -159,8 +163,10 @@ export function shouldReinforceUltrawork(
     return false;
   }
 
-  // If bound to a session, only reinforce for that session
-  if (state.session_id && sessionId && state.session_id !== sessionId) {
+  // Strict session isolation: state must match the requesting session
+  // Both must be defined and equal - prevent cross-session contamination
+  // when both are undefined (Bug #5 fix)
+  if (!state.session_id || !sessionId || state.session_id !== sessionId) {
     return false;
   }
 

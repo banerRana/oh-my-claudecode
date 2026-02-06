@@ -137,7 +137,8 @@ export function initUltrapilot(
     totalWorkersSpawned: 0,
     successfulWorkers: 0,
     failedWorkers: 0,
-    sessionId
+    sessionId,
+    project_path: directory
   };
 
   writeUltrapilotState(directory, state);

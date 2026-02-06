@@ -28,6 +28,8 @@ export interface UltraQAState {
   started_at: string;
   /** Session ID the loop is bound to */
   session_id?: string;
+  /** Project path for isolation */
+  project_path?: string;
 }
 
 export interface UltraQAOptions {
@@ -153,7 +155,8 @@ export function startUltraQA(
     max_cycles: options?.maxCycles ?? DEFAULT_MAX_CYCLES,
     failures: [],
     started_at: new Date().toISOString(),
-    session_id: sessionId
+    session_id: sessionId,
+    project_path: directory
   };
 
   const written = writeUltraQAState(directory, state);
@@ -277,13 +280,13 @@ function normalizeFailure(failure: string): string {
 export function getGoalCommand(goalType: UltraQAGoalType): string {
   switch (goalType) {
     case 'tests':
-      return 'npm test';
+      return '# Run the project test command (e.g., npm test, pytest, go test ./..., cargo test)';
     case 'build':
-      return 'npm run build';
+      return '# Run the project build command (e.g., npm run build, go build ./..., cargo build)';
     case 'lint':
-      return 'npm run lint';
+      return '# Run the project lint command (e.g., npm run lint, ruff check ., golangci-lint run)';
     case 'typecheck':
-      return 'npm run typecheck || tsc --noEmit';
+      return '# Run the project type check command (e.g., tsc --noEmit, mypy ., cargo check)';
     case 'custom':
       return '# Custom command based on goal pattern';
   }

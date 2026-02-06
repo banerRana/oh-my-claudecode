@@ -7,6 +7,8 @@
  * Ported from oh-my-opencode's keyword-detector hook.
  */
 
+import { isEcomodeEnabled } from '../../features/auto-update.js';
+
 export type KeywordType =
   | 'cancel'      // Priority 1
   | 'ralph'       // Priority 2
@@ -22,7 +24,9 @@ export type KeywordType =
   | 'research'    // Priority 12
   | 'ultrathink'  // Priority 13
   | 'deepsearch'  // Priority 14
-  | 'analyze';    // Priority 15
+  | 'analyze'     // Priority 15
+  | 'codex'       // Priority 16
+  | 'gemini';     // Priority 17
 
 export interface DetectedKeyword {
   type: KeywordType;
@@ -71,7 +75,9 @@ const KEYWORD_PATTERNS: Record<KeywordType, RegExp> = {
   research: /\b(research)\b|\banalyze\s+data\b|\bstatistics\b/i,
   ultrathink: /\b(ultrathink|think hard|think deeply)\b/i,
   deepsearch: /\b(deepsearch)\b|\bsearch\s+(the\s+)?(codebase|code|files?|project)\b|\bfind\s+(in\s+)?(codebase|code|all\s+files?)\b/i,
-  analyze: /\b(deep\s*analyze)\b|\binvestigate\s+(the|this|why)\b|\bdebug\s+(the|this|why)\b/i
+  analyze: /\b(deep\s*analyze)\b|\binvestigate\s+(the|this|why)\b|\bdebug\s+(the|this|why)\b/i,
+  codex: /\b(ask|use|delegate\s+to)\s+(codex|gpt)\b/i,
+  gemini: /\b(ask|use|delegate\s+to)\s+gemini\b/i
 };
 
 /**
@@ -81,7 +87,7 @@ const KEYWORD_PATTERNS: Record<KeywordType, RegExp> = {
 const KEYWORD_PRIORITY: KeywordType[] = [
   'cancel', 'ralph', 'autopilot', 'ultrapilot', 'ultrawork', 'ecomode',
   'swarm', 'pipeline', 'ralplan', 'plan', 'tdd', 'research',
-  'ultrathink', 'deepsearch', 'analyze'
+  'ultrathink', 'deepsearch', 'analyze', 'codex', 'gemini'
 ];
 
 /**
@@ -97,6 +103,28 @@ export function removeCodeBlocks(text: string): string {
   result = result.replace(/`[^`]+`/g, '');
 
   return result;
+}
+
+/**
+ * Sanitize text for keyword detection by removing XML tags, URLs, file paths,
+ * and code blocks to prevent false positives
+ */
+export function sanitizeForKeywordDetection(text: string): string {
+  return text
+    // Strip XML-style tag blocks
+    .replace(/<(\w[\w-]*)[\s>][\s\S]*?<\/\1>/g, '')
+    // Strip self-closing XML tags
+    .replace(/<\w[\w-]*(?:\s[^>]*)?\s*\/>/g, '')
+    // Strip URLs
+    .replace(/https?:\/\/[^\s)>\]]+/g, '')
+    // Strip file paths — uses capture group + $1 replacement instead of lookbehind
+    // for broader engine compatibility (the .mjs runtime uses lookbehind instead)
+    .replace(/(^|[\s"'`(])(?:\/)?(?:[\w.-]+\/)+[\w.-]+/gm, '$1')
+    // Strip markdown code blocks
+    .replace(/```[\s\S]*?```/g, '')
+    .replace(/~~~[\s\S]*?~~~/g, '')
+    // Strip inline code
+    .replace(/`[^`]+`/g, '');
 }
 
 /**
@@ -119,7 +147,7 @@ export function detectKeywordsWithType(
   _agentName?: string
 ): DetectedKeyword[] {
   const detected: DetectedKeyword[] = [];
-  const cleanedText = removeCodeBlocks(text);
+  const cleanedText = sanitizeForKeywordDetection(text);
 
   // Check for autopilot keywords
   const hasAutopilot = AUTOPILOT_KEYWORDS.some(kw =>
@@ -143,6 +171,11 @@ export function detectKeywordsWithType(
 
   // Check each keyword type
   for (const type of KEYWORD_PRIORITY) {
+    // Skip ecomode detection if disabled in config
+    if (type === 'ecomode' && !isEcomodeEnabled()) {
+      continue;
+    }
+
     const pattern = KEYWORD_PATTERNS[type];
     const match = cleanedText.match(pattern);
 
@@ -162,16 +195,14 @@ export function detectKeywordsWithType(
  * Check if text contains any magic keyword
  */
 export function hasKeyword(text: string): boolean {
-  const cleanText = removeCodeBlocks(text);
-  return detectKeywordsWithType(cleanText).length > 0;
+  return detectKeywordsWithType(text).length > 0;
 }
 
 /**
  * Get all detected keywords with conflict resolution applied
  */
 export function getAllKeywords(text: string): KeywordType[] {
-  const cleanText = removeCodeBlocks(text);
-  const detected = detectKeywordsWithType(cleanText);
+  const detected = detectKeywordsWithType(text);
 
   if (detected.length === 0) return [];
 
@@ -180,8 +211,8 @@ export function getAllKeywords(text: string): KeywordType[] {
   // Exclusive: cancel suppresses everything
   if (types.includes('cancel')) return ['cancel'];
 
-  // Mutual exclusion: ecomode beats ultrawork
-  if (types.includes('ecomode') && types.includes('ultrawork')) {
+  // Mutual exclusion: ecomode beats ultrawork (only if ecomode is enabled)
+  if (types.includes('ecomode') && types.includes('ultrawork') && isEcomodeEnabled()) {
     types = types.filter(t => t !== 'ultrawork');
   }
 
@@ -208,8 +239,7 @@ export function getPrimaryKeyword(text: string): DetectedKeyword | null {
   const primaryType = allKeywords[0];
 
   // Find the original detected keyword for this type
-  const cleanText = removeCodeBlocks(text);
-  const detected = detectKeywordsWithType(cleanText);
+  const detected = detectKeywordsWithType(text);
   const match = detected.find(d => d.type === primaryType);
 
   return match || null;

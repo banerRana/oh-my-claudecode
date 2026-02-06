@@ -7,6 +7,7 @@ import {
   SKILLS_DIR,
   HOOKS_DIR,
   isRunningAsPlugin,
+  isProjectScopedPlugin,
 } from '../installer/index.js';
 import { join, dirname } from 'path';
 import { homedir } from 'os';
@@ -250,10 +251,9 @@ describe('Installer Constants', () => {
     it('should contain essential sections', () => {
       const essentialSections = [
         'Multi-Agent Orchestration',
-        'DELEGATION-FIRST PHILOSOPHY',
-        'What Happens Automatically',
-        'Magic Keywords',
-        'Stopping and Cancelling',
+        'Delegation-First Philosophy',
+        'All Skills',
+        'Cancellation',
       ];
 
       for (const section of essentialSections) {
@@ -280,21 +280,18 @@ describe('Installer Constants', () => {
     });
 
     it('should include tiered agent routing table', () => {
-      // Verify the Smart Model Routing section and agent tiers exist
+      // Verify the Smart Model Routing section exists with model names
       expect(CLAUDE_MD_CONTENT).toContain('Smart Model Routing');
-      expect(CLAUDE_MD_CONTENT).toContain('LOW (Haiku)');
-      expect(CLAUDE_MD_CONTENT).toContain('MEDIUM (Sonnet)');
-      expect(CLAUDE_MD_CONTENT).toContain('HIGH (Opus)');
-      // Agent names appear in tier tables
-      expect(CLAUDE_MD_CONTENT).toContain('explore');
-      expect(CLAUDE_MD_CONTENT).toContain('executor-low');
+      expect(CLAUDE_MD_CONTENT).toContain('haiku');
+      expect(CLAUDE_MD_CONTENT).toContain('sonnet');
+      expect(CLAUDE_MD_CONTENT).toContain('opus');
+      // Agent tiers are now inline in the Agent Tier Matrix section
+      expect(CLAUDE_MD_CONTENT).toContain('Agent Tier Matrix');
     });
 
     it('should document magic keywords and compatibility commands', () => {
-      // New CLAUDE.md has "Magic Keywords" instead of slash commands
-      expect(CLAUDE_MD_CONTENT).toContain('Magic Keywords');
-
-      // Check for key keywords in the table
+      // Keywords are now in skill trigger columns
+      // Check for key keywords in the skill tables
       const keywords = [
         'ralph',
         'ralplan',
@@ -306,9 +303,9 @@ describe('Installer Constants', () => {
         expect(CLAUDE_MD_CONTENT).toContain(keyword);
       }
 
-      // Verify migration section exists (points to MIGRATION.md)
-      expect(CLAUDE_MD_CONTENT).toContain('Migration');
-      expect(CLAUDE_MD_CONTENT).toContain('MIGRATION.md');
+      // Verify skills section exists with trigger patterns
+      expect(CLAUDE_MD_CONTENT).toContain('All Skills');
+      expect(CLAUDE_MD_CONTENT).toContain('Trigger');
     });
 
     it('should contain markdown tables', () => {
@@ -327,7 +324,7 @@ describe('Installer Constants', () => {
 
     it('should match package.json version', () => {
       // This is a runtime check - VERSION should match the package.json
-      expect(VERSION).toBe('3.8.6');
+      expect(VERSION).toBe('3.10.3');
     });
   });
 
@@ -479,6 +476,56 @@ describe('Installer Constants', () => {
     it('should detect plugin context from environment variable', () => {
       process.env.CLAUDE_PLUGIN_ROOT = '/any/path';
       expect(isRunningAsPlugin()).toBe(true);
+    });
+  });
+
+  describe('Project-Scoped Plugin Detection', () => {
+    let originalEnv: string | undefined;
+
+    beforeEach(() => {
+      originalEnv = process.env.CLAUDE_PLUGIN_ROOT;
+    });
+
+    afterEach(() => {
+      if (originalEnv !== undefined) {
+        process.env.CLAUDE_PLUGIN_ROOT = originalEnv;
+      } else {
+        delete process.env.CLAUDE_PLUGIN_ROOT;
+      }
+    });
+
+    it('should return false when CLAUDE_PLUGIN_ROOT is not set', () => {
+      delete process.env.CLAUDE_PLUGIN_ROOT;
+      expect(isProjectScopedPlugin()).toBe(false);
+    });
+
+    it('should return false for global plugin installation', () => {
+      // Global plugins are under ~/.claude/plugins/
+      process.env.CLAUDE_PLUGIN_ROOT = join(homedir(), '.claude', 'plugins', 'cache', 'omc', 'oh-my-claudecode', '3.9.0');
+      expect(isProjectScopedPlugin()).toBe(false);
+    });
+
+    it('should return true for project-scoped plugin installation', () => {
+      // Project-scoped plugins are in the project's .claude/plugins/ directory
+      process.env.CLAUDE_PLUGIN_ROOT = '/home/user/myproject/.claude/plugins/oh-my-claudecode';
+      expect(isProjectScopedPlugin()).toBe(true);
+    });
+
+    it('should return true when plugin is outside global plugin directory', () => {
+      // Any path that's not under ~/.claude/plugins/ is considered project-scoped
+      process.env.CLAUDE_PLUGIN_ROOT = '/var/projects/app/.claude/plugins/omc';
+      expect(isProjectScopedPlugin()).toBe(true);
+    });
+
+    it('should handle Windows-style paths', () => {
+      // Windows paths with backslashes should be normalized
+      process.env.CLAUDE_PLUGIN_ROOT = 'C:\\Users\\user\\project\\.claude\\plugins\\omc';
+      expect(isProjectScopedPlugin()).toBe(true);
+    });
+
+    it('should handle trailing slashes in paths', () => {
+      process.env.CLAUDE_PLUGIN_ROOT = join(homedir(), '.claude', 'plugins', 'cache', 'omc') + '/';
+      expect(isProjectScopedPlugin()).toBe(false);
     });
   });
 

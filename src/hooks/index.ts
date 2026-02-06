@@ -742,6 +742,18 @@ export {
 } from './setup/index.js';
 
 export {
+  // Beads Context
+  getBeadsInstructions,
+  getBeadsContextConfig,
+  registerBeadsContext,
+  clearBeadsContext,
+  BEADS_INSTRUCTIONS,
+  BEADS_RUST_INSTRUCTIONS,
+  type TaskTool,
+  type BeadsContextConfig
+} from './beads-context/index.js';
+
+export {
   // Subagent Tracker Hook
   processSubagentStart,
   processSubagentStop,
@@ -798,4 +810,49 @@ export {
   type SessionMetrics,
   type HookOutput as SessionEndHookOutput
 } from './session-end/index.js';
+
+export {
+  // Project Memory Hook
+  registerProjectMemoryContext,
+  clearProjectMemorySession,
+  rescanProjectEnvironment,
+  loadProjectMemory,
+  saveProjectMemory,
+  detectProjectEnvironment,
+  formatContextSummary,
+  formatFullContext,
+  learnFromToolOutput,
+  addCustomNote,
+  processPreCompact as processProjectMemoryPreCompact,
+  mapDirectoryStructure,
+  updateDirectoryAccess,
+  trackAccess,
+  getTopHotPaths,
+  decayHotPaths,
+  detectDirectivesFromMessage,
+  addDirective,
+  formatDirectivesForContext,
+  type ProjectMemory,
+  type TechStack,
+  type BuildInfo,
+  type CodeConventions,
+  type ProjectStructure,
+  type LanguageDetection,
+  type FrameworkDetection,
+  type GitBranchPattern,
+  type CustomNote,
+  type DirectoryInfo,
+  type HotPath,
+  type UserDirective
+} from './project-memory/index.js';
+
+export {
+  // Flow Tracer (Agent Flow Trace Recording)
+  recordHookFire,
+  recordHookResult,
+  recordKeywordDetected,
+  recordSkillActivated,
+  recordSkillInvoked,
+  recordModeChange,
+} from './subagent-tracker/flow-tracer.js';
 

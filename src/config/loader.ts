@@ -12,25 +12,26 @@ import { homedir } from 'os';
 import { join, dirname } from 'path';
 import * as jsonc from 'jsonc-parser';
 import type { PluginConfig } from '../shared/types.js';
+import { getConfigDir } from '../utils/paths.js';
 
 /**
  * Default configuration
  */
 export const DEFAULT_CONFIG: PluginConfig = {
   agents: {
-    omc: { model: 'claude-opus-4-5-20251101' },
-    architect: { model: 'claude-opus-4-5-20251101', enabled: true },
+    omc: { model: 'claude-opus-4-6-20260205' },
+    architect: { model: 'claude-opus-4-6-20260205', enabled: true },
     researcher: { model: 'claude-sonnet-4-5-20250929' },
     explore: { model: 'claude-haiku-4-5-20251001' },
     frontendEngineer: { model: 'claude-sonnet-4-5-20250929', enabled: true },
     documentWriter: { model: 'claude-haiku-4-5-20251001', enabled: true },
     multimodalLooker: { model: 'claude-sonnet-4-5-20250929', enabled: true },
     // New agents from oh-my-opencode
-    critic: { model: 'claude-opus-4-5-20251101', enabled: true },
-    analyst: { model: 'claude-opus-4-5-20251101', enabled: true },
+    critic: { model: 'claude-opus-4-6-20260205', enabled: true },
+    analyst: { model: 'claude-opus-4-6-20260205', enabled: true },
     orchestratorSisyphus: { model: 'claude-sonnet-4-5-20250929', enabled: true },
     sisyphusJunior: { model: 'claude-sonnet-4-5-20250929', enabled: true },
-    planner: { model: 'claude-opus-4-5-20251101', enabled: true }
+    planner: { model: 'claude-opus-4-6-20260205', enabled: true }
   },
   features: {
     parallelExecution: true,
@@ -64,7 +65,7 @@ export const DEFAULT_CONFIG: PluginConfig = {
     tierModels: {
       LOW: 'claude-haiku-4-5-20251001',
       MEDIUM: 'claude-sonnet-4-5-20250929',
-      HIGH: 'claude-opus-4-5-20251101'
+      HIGH: 'claude-opus-4-6-20260205'
     },
     agentOverrides: {
       architect: { tier: 'HIGH', reason: 'Advisory agent requires deep reasoning' },
@@ -88,7 +89,7 @@ export const DEFAULT_CONFIG: PluginConfig = {
  * Configuration file locations
  */
 export function getConfigPaths(): { user: string; project: string } {
-  const userConfigDir = process.env.XDG_CONFIG_HOME ?? join(homedir(), '.config');
+  const userConfigDir = getConfigDir();
 
   return {
     user: join(userConfigDir, 'claude-sisyphus', 'config.jsonc'),
@@ -396,7 +397,7 @@ export function generateConfigSchema(): object {
           allowBash: { type: 'boolean', default: true },
           allowEdit: { type: 'boolean', default: true },
           allowWrite: { type: 'boolean', default: true },
-          maxBackgroundTasks: { type: 'integer', default: 5, minimum: 1, maximum: 20 }
+          maxBackgroundTasks: { type: 'integer', default: 5, minimum: 1, maximum: 50 }
         }
       },
       magicKeywords: {
@@ -407,6 +408,16 @@ export function generateConfigSchema(): object {
           search: { type: 'array', items: { type: 'string' } },
           analyze: { type: 'array', items: { type: 'string' } },
           ultrathink: { type: 'array', items: { type: 'string' } }
+        }
+      },
+      swarm: {
+        type: 'object',
+        description: 'Swarm mode settings',
+        properties: {
+          defaultMaxConcurrent: { type: 'integer', default: 5, minimum: 1, maximum: 50 },
+          wavePollingInterval: { type: 'integer', default: 5000, minimum: 1000, maximum: 30000 },
+          aggressiveThreshold: { type: 'integer', default: 5 },
+          enableFileOwnership: { type: 'boolean', default: true }
         }
       }
     }

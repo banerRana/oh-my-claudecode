@@ -13,57 +13,97 @@
  * ```
  */
 
-import { detectKeywordsWithType, removeCodeBlocks, getPrimaryKeyword, getAllKeywords } from './keyword-detector/index.js';
-import { readRalphState, incrementRalphIteration, clearRalphState, createRalphLoopHook } from './ralph/index.js';
-import { processOrchestratorPreTool } from './omc-orchestrator/index.js';
-import { addBackgroundTask, completeBackgroundTask } from '../hud/background-tasks.js';
+import { pathToFileURL } from 'url';
+import { removeCodeBlocks, getAllKeywords } from "./keyword-detector/index.js";
+import {
+  readRalphState,
+  incrementRalphIteration,
+  clearRalphState,
+  createRalphLoopHook,
+} from "./ralph/index.js";
+import { processOrchestratorPreTool } from "./omc-orchestrator/index.js";
+import {
+  addBackgroundTask,
+  getRunningTaskCount,
+} from "../hud/background-tasks.js";
+import { loadConfig } from "../config/loader.js";
 import {
   readVerificationState,
   getArchitectVerificationPrompt,
-  clearVerificationState
-} from './ralph/index.js';
-import { checkIncompleteTodos, StopContext, isContextLimitStop, isUserAbort } from './todo-continuation/index.js';
-import { checkPersistentModes, createHookOutput } from './persistent-mode/index.js';
-import { activateUltrawork, readUltraworkState } from './ultrawork/index.js';
+  clearVerificationState,
+} from "./ralph/index.js";
+import {
+  checkIncompleteTodos,
+  StopContext,
+} from "./todo-continuation/index.js";
+import {
+  checkPersistentModes,
+  createHookOutput,
+} from "./persistent-mode/index.js";
+import { activateUltrawork, readUltraworkState } from "./ultrawork/index.js";
 import {
   readAutopilotState,
   isAutopilotActive,
   getPhasePrompt,
   transitionPhase,
-  formatCompactSummary
-} from './autopilot/index.js';
+  formatCompactSummary,
+} from "./autopilot/index.js";
 import {
   ULTRAWORK_MESSAGE,
   ULTRATHINK_MESSAGE,
   SEARCH_MESSAGE,
   ANALYZE_MESSAGE,
   TODO_CONTINUATION_PROMPT,
-  RALPH_MESSAGE
-} from '../installer/hooks.js';
+  RALPH_MESSAGE,
+} from "../installer/hooks.js";
 
 // New async hook imports
 import {
   processSubagentStart,
   processSubagentStop,
+  getAgentDashboard,
+  getAgentObservatory,
+  recordFileOwnership,
+  suggestInterventions,
   type SubagentStartInput,
-  type SubagentStopInput
-} from './subagent-tracker/index.js';
+  type SubagentStopInput,
+} from "./subagent-tracker/index.js";
+
+import {
+  recordAgentStart,
+  recordAgentStop,
+  recordToolEvent,
+  recordFileTouch,
+} from "./subagent-tracker/session-replay.js";
 import {
   processPreCompact,
-  type PreCompactInput
-} from './pre-compact/index.js';
-import {
-  processSetup,
-  type SetupInput
-} from './setup/index.js';
+  type PreCompactInput,
+} from "./pre-compact/index.js";
+import { processSetup, type SetupInput } from "./setup/index.js";
 import {
   handlePermissionRequest,
-  type PermissionRequestInput
-} from './permission-handler/index.js';
-import {
-  handleSessionEnd,
-  type SessionEndInput
-} from './session-end/index.js';
+  type PermissionRequestInput,
+} from "./permission-handler/index.js";
+import { handleSessionEnd, type SessionEndInput } from "./session-end/index.js";
+import { initSilentAutoUpdate } from "../features/auto-update.js";
+
+const PKILL_F_FLAG_PATTERN = /\bpkill\b.*\s-f\b/;
+const PKILL_FULL_FLAG_PATTERN = /\bpkill\b.*--full\b/;
+
+/**
+ * Validates that an input object contains all required fields.
+ * Returns true if all required fields are present, false otherwise.
+ */
+function validateHookInput<T>(
+  input: unknown,
+  requiredFields: string[],
+): input is T {
+  if (typeof input !== "object" || input === null) return false;
+  const obj = input as Record<string, unknown>;
+  return requiredFields.every(
+    (field) => field in obj && obj[field] !== undefined,
+  );
+}
 
 /**
  * Input format from Claude Code hooks (via stdin)
@@ -110,21 +150,21 @@ export interface HookOutput {
  * Hook types that can be processed
  */
 export type HookType =
-  | 'keyword-detector'
-  | 'stop-continuation'
-  | 'ralph'
-  | 'persistent-mode'
-  | 'session-start'
-  | 'session-end'          // NEW: Cleanup and metrics on session end
-  | 'pre-tool-use'
-  | 'post-tool-use'
-  | 'autopilot'
-  | 'subagent-start'       // NEW: Track agent spawns
-  | 'subagent-stop'        // NEW: Verify agent completion
-  | 'pre-compact'          // NEW: Save state before compaction
-  | 'setup-init'           // NEW: One-time initialization
-  | 'setup-maintenance'    // NEW: Periodic maintenance
-  | 'permission-request';  // NEW: Smart auto-approval
+  | "keyword-detector"
+  | "stop-continuation"
+  | "ralph"
+  | "persistent-mode"
+  | "session-start"
+  | "session-end" // NEW: Cleanup and metrics on session end
+  | "pre-tool-use"
+  | "post-tool-use"
+  | "autopilot"
+  | "subagent-start" // NEW: Track agent spawns
+  | "subagent-stop" // NEW: Verify agent completion
+  | "pre-compact" // NEW: Save state before compaction
+  | "setup-init" // NEW: One-time initialization
+  | "setup-maintenance" // NEW: Periodic maintenance
+  | "permission-request"; // NEW: Smart auto-approval
 
 /**
  * Extract prompt text from various input formats
@@ -138,11 +178,11 @@ function getPromptText(input: HookInput): string {
   }
   if (input.parts) {
     return input.parts
-      .filter(p => p.type === 'text' && p.text)
-      .map(p => p.text)
-      .join(' ');
+      .filter((p) => p.type === "text" && p.text)
+      .map((p) => p.text)
+      .join(" ");
   }
-  return '';
+  return "";
 }
 
 /**
@@ -173,44 +213,47 @@ function processKeywordDetector(input: HookInput): HookOutput {
   // Process each keyword and collect messages
   for (const keywordType of keywords) {
     switch (keywordType) {
-      case 'ralph':
+      case "ralph": {
         // Activate ralph state which also auto-activates ultrawork
         const hook = createRalphLoopHook(directory);
-        hook.startLoop(sessionId || 'cli-session', promptText);
+        hook.startLoop(sessionId || "cli-session", promptText);
         messages.push(RALPH_MESSAGE);
         break;
+      }
 
-      case 'ultrawork':
+      case "ultrawork":
         // Activate persistent ultrawork state
         activateUltrawork(promptText, sessionId, directory);
         messages.push(ULTRAWORK_MESSAGE);
         break;
 
-      case 'ultrathink':
+      case "ultrathink":
         messages.push(ULTRATHINK_MESSAGE);
         break;
 
-      case 'deepsearch':
+      case "deepsearch":
         messages.push(SEARCH_MESSAGE);
         break;
 
-      case 'analyze':
+      case "analyze":
         messages.push(ANALYZE_MESSAGE);
         break;
 
       // For modes without dedicated message constants, return generic activation message
       // These are handled by UserPromptSubmit hook for skill invocation
-      case 'cancel':
-      case 'autopilot':
-      case 'ultrapilot':
-      case 'ecomode':
-      case 'swarm':
-      case 'pipeline':
-      case 'ralplan':
-      case 'plan':
-      case 'tdd':
-      case 'research':
-        messages.push(`[MODE: ${keywordType.toUpperCase()}] Skill invocation handled by UserPromptSubmit hook.`);
+      case "cancel":
+      case "autopilot":
+      case "ultrapilot":
+      case "ecomode":
+      case "swarm":
+      case "pipeline":
+      case "ralplan":
+      case "plan":
+      case "tdd":
+      case "research":
+        messages.push(
+          `[MODE: ${keywordType.toUpperCase()}] Skill invocation handled by UserPromptSubmit hook.`,
+        );
         break;
 
       default:
@@ -226,7 +269,7 @@ function processKeywordDetector(input: HookInput): HookOutput {
 
   return {
     continue: true,
-    message: messages.join('\n\n---\n\n')
+    message: messages.join("\n\n---\n\n"),
   };
 }
 
@@ -259,8 +302,8 @@ async function processRalph(input: HookInput): Promise<HookOutput> {
     return { continue: true };
   }
 
-  // Check if this is the right session
-  if (state.session_id && state.session_id !== sessionId) {
+  // Strict session isolation: only process state for matching session
+  if (state.session_id !== sessionId) {
     return { continue: true };
   }
 
@@ -271,10 +314,11 @@ async function processRalph(input: HookInput): Promise<HookOutput> {
     // Check if architect has approved (by looking for the tag in transcript)
     // This is handled more thoroughly in persistent-mode hook
     // Here we just remind to spawn architect if verification is pending
-    const verificationPrompt = getArchitectVerificationPrompt(verificationState);
+    const verificationPrompt =
+      getArchitectVerificationPrompt(verificationState);
     return {
       continue: true,
-      message: verificationPrompt
+      message: verificationPrompt,
     };
   }
 
@@ -284,7 +328,7 @@ async function processRalph(input: HookInput): Promise<HookOutput> {
     clearVerificationState(directory);
     return {
       continue: true,
-      message: `[RALPH LOOP STOPPED] Max iterations (${state.max_iterations}) reached without completion.`
+      message: `[RALPH LOOP STOPPED] Max iterations (${state.max_iterations}) reached without completion.`,
     };
   }
 
@@ -309,7 +353,7 @@ ${newState.prompt}`;
 
   return {
     continue: true,
-    message: continuationPrompt
+    message: continuationPrompt,
   };
 }
 
@@ -323,10 +367,18 @@ async function processPersistentMode(input: HookInput): Promise<HookOutput> {
 
   // Extract stop context for abort detection (supports both camelCase and snake_case)
   const stopContext: StopContext = {
-    stop_reason: (input as Record<string, unknown>).stop_reason as string | undefined,
-    stopReason: (input as Record<string, unknown>).stopReason as string | undefined,
-    user_requested: (input as Record<string, unknown>).user_requested as boolean | undefined,
-    userRequested: (input as Record<string, unknown>).userRequested as boolean | undefined,
+    stop_reason: (input as Record<string, unknown>).stop_reason as
+      | string
+      | undefined,
+    stopReason: (input as Record<string, unknown>).stopReason as
+      | string
+      | undefined,
+    user_requested: (input as Record<string, unknown>).user_requested as
+      | boolean
+      | undefined,
+    userRequested: (input as Record<string, unknown>).userRequested as
+      | boolean
+      | undefined,
   };
 
   const result = await checkPersistentModes(sessionId, directory, stopContext);
@@ -341,11 +393,14 @@ async function processSessionStart(input: HookInput): Promise<HookOutput> {
   const sessionId = input.sessionId;
   const directory = input.directory || process.cwd();
 
+  // Trigger silent auto-update check (non-blocking, checks config internally)
+  initSilentAutoUpdate();
+
   const messages: string[] = [];
 
-  // Check for active autopilot state
+  // Check for active autopilot state - only restore if it belongs to this session
   const autopilotState = readAutopilotState(directory);
-  if (autopilotState?.active) {
+  if (autopilotState?.active && autopilotState.session_id === sessionId) {
     messages.push(`<session-restore>
 
 [AUTOPILOT MODE RESTORED]
@@ -363,9 +418,9 @@ Continue autopilot execution until complete.
 `);
   }
 
-  // Check for active ultrawork state
+  // Check for active ultrawork state - only restore if it belongs to this session
   const ultraworkState = readUltraworkState(directory);
-  if (ultraworkState?.active) {
+  if (ultraworkState?.active && ultraworkState.session_id === sessionId) {
     messages.push(`<session-restore>
 
 [ULTRAWORK MODE RESTORED]
@@ -402,7 +457,7 @@ Please continue working on these tasks.
   if (messages.length > 0) {
     return {
       continue: true,
-      message: messages.join('\n')
+      message: messages.join("\n"),
     };
   }
 
@@ -418,7 +473,7 @@ function processPreToolUse(input: HookInput): HookOutput {
 
   // Check delegation enforcement FIRST
   const enforcementResult = processOrchestratorPreTool({
-    toolName: input.toolName || '',
+    toolName: input.toolName || "",
     toolInput: (input.toolInput as Record<string, unknown>) || {},
     sessionId: input.sessionId,
     directory,
@@ -435,29 +490,63 @@ function processPreToolUse(input: HookInput): HookOutput {
 
   // Warn about pkill -f self-termination risk (issue #210)
   // Matches: pkill -f, pkill -9 -f, pkill --full, etc.
-  if (input.toolName === 'Bash') {
-    const command = (input.toolInput as { command?: string })?.command ?? '';
-    if (/\bpkill\b.*\s-f\b/.test(command) || /\bpkill\b.*--full\b/.test(command)) {
+  if (input.toolName === "Bash") {
+    const command = (input.toolInput as { command?: string })?.command ?? "";
+    if (
+      PKILL_F_FLAG_PATTERN.test(command) ||
+      PKILL_FULL_FLAG_PATTERN.test(command)
+    ) {
       return {
         continue: true,
         message: [
-          'WARNING: `pkill -f` matches its own process command line and will self-terminate the shell (exit code 144 = SIGTERM).',
-          'Safer alternatives:',
-          '  - `pkill <exact-process-name>` (without -f)',
+          "WARNING: `pkill -f` matches its own process command line and will self-terminate the shell (exit code 144 = SIGTERM).",
+          "Safer alternatives:",
+          "  - `pkill <exact-process-name>` (without -f)",
           '  - `kill $(pgrep -f "pattern")` (pgrep does not kill itself)',
-          'Proceeding anyway, but the command may kill this shell session.',
-        ].join('\n'),
+          "Proceeding anyway, but the command may kill this shell session.",
+        ].join("\n"),
       };
     }
   }
 
+  // Background process guard - prevent forkbomb (issue #302)
+  // Block new background tasks if limit is exceeded
+  if (input.toolName === "Task" || input.toolName === "Bash") {
+    const toolInput = input.toolInput as
+      | {
+          description?: string;
+          subagent_type?: string;
+          run_in_background?: boolean;
+          command?: string;
+        }
+      | undefined;
+
+    if (toolInput?.run_in_background) {
+      const config = loadConfig();
+      const maxBgTasks = config.permissions?.maxBackgroundTasks ?? 5;
+      const runningCount = getRunningTaskCount(directory);
+
+      if (runningCount >= maxBgTasks) {
+        return {
+          continue: false,
+          reason:
+            `Background process limit reached (${runningCount}/${maxBgTasks}). ` +
+            `Wait for running tasks to complete before starting new ones. ` +
+            `Limit is configurable via permissions.maxBackgroundTasks in config or OMC_MAX_BACKGROUND_TASKS env var.`,
+        };
+      }
+    }
+  }
+
   // Track Task tool invocations for HUD background tasks display
-  if (input.toolName === 'Task') {
-    const toolInput = input.toolInput as {
-      description?: string;
-      subagent_type?: string;
-      run_in_background?: boolean;
-    } | undefined;
+  if (input.toolName === "Task") {
+    const toolInput = input.toolInput as
+      | {
+          description?: string;
+          subagent_type?: string;
+          run_in_background?: boolean;
+        }
+      | undefined;
 
     if (toolInput?.description) {
       const taskId = `task-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -465,8 +554,35 @@ function processPreToolUse(input: HookInput): HookOutput {
         taskId,
         toolInput.description,
         toolInput.subagent_type,
-        directory
+        directory,
       );
+    }
+  }
+
+  // Track file ownership for Edit/Write tools
+  if (input.toolName === "Edit" || input.toolName === "Write") {
+    const toolInput = input.toolInput as { file_path?: string } | undefined;
+    if (toolInput?.file_path && input.sessionId) {
+      // Note: We don't have agent_id here in pre-tool, file ownership is recorded elsewhere
+      // Record file touch for replay
+      recordFileTouch(
+        directory,
+        input.sessionId,
+        "orchestrator",
+        toolInput.file_path,
+      );
+    }
+  }
+
+  // Inject agent dashboard for Task tool calls (debugging parallel agents)
+  if (input.toolName === "Task") {
+    const dashboard = getAgentDashboard(directory);
+    if (dashboard) {
+      const baseMessage = enforcementResult.message || "";
+      const combined = baseMessage
+        ? `${baseMessage}\n\n${dashboard}`
+        : dashboard;
+      return { continue: true, message: combined };
     }
   }
 
@@ -478,20 +594,19 @@ function processPreToolUse(input: HookInput): HookOutput {
 
 /**
  * Process post-tool-use hook
- * Marks background tasks as completed
  */
 function processPostToolUse(input: HookInput): HookOutput {
   const directory = input.directory || process.cwd();
 
-  // Track Task tool completion for HUD
-  if (input.toolName === 'Task') {
-    const toolInput = input.toolInput as {
-      description?: string;
-    } | undefined;
-
-    // We don't have the exact task ID, but the HUD state cleanup handles this
-    // For now, this is a placeholder - proper tracking would need tool_use_id
-    // which isn't reliably available in all hook scenarios
+  // After Task completion, show updated agent dashboard
+  if (input.toolName === "Task") {
+    const dashboard = getAgentDashboard(directory);
+    if (dashboard) {
+      return {
+        continue: true,
+        message: dashboard,
+      };
+    }
   }
 
   return { continue: true };
@@ -513,8 +628,8 @@ function processAutopilot(input: HookInput): HookOutput {
   // Check phase and inject appropriate prompt
   const context = {
     idea: state.originalIdea,
-    specPath: state.expansion.spec_path || '.omc/autopilot/spec.md',
-    planPath: state.planning.plan_path || '.omc/plans/autopilot-impl.md'
+    specPath: state.expansion.spec_path || ".omc/autopilot/spec.md",
+    planPath: state.planning.plan_path || ".omc/plans/autopilot-impl.md",
   };
 
   const phasePrompt = getPhasePrompt(state.phase, context);
@@ -522,11 +637,32 @@ function processAutopilot(input: HookInput): HookOutput {
   if (phasePrompt) {
     return {
       continue: true,
-      message: `[AUTOPILOT - Phase: ${state.phase.toUpperCase()}]\n\n${phasePrompt}`
+      message: `[AUTOPILOT - Phase: ${state.phase.toUpperCase()}]\n\n${phasePrompt}`,
     };
   }
 
   return { continue: true };
+}
+
+/**
+ * Cached parsed OMC_SKIP_HOOKS for performance (env vars don't change during process lifetime)
+ */
+let _cachedSkipHooks: string[] | null = null;
+function getSkipHooks(): string[] {
+  if (_cachedSkipHooks === null) {
+    _cachedSkipHooks =
+      process.env.OMC_SKIP_HOOKS?.split(",")
+        .map((s) => s.trim())
+        .filter(Boolean) ?? [];
+  }
+  return _cachedSkipHooks;
+}
+
+/**
+ * Reset the skip hooks cache (for testing only)
+ */
+export function resetSkipHooksCache(): void {
+  _cachedSkipHooks = null;
 }
 
 /**
@@ -535,63 +671,139 @@ function processAutopilot(input: HookInput): HookOutput {
  */
 export async function processHook(
   hookType: HookType,
-  input: HookInput
+  input: HookInput,
 ): Promise<HookOutput> {
+  // Environment kill-switches for plugin coexistence
+  if (process.env.DISABLE_OMC === "1" || process.env.DISABLE_OMC === "true") {
+    return { continue: true };
+  }
+  const skipHooks = getSkipHooks();
+  if (skipHooks.includes(hookType)) {
+    return { continue: true };
+  }
+
   try {
     switch (hookType) {
-      case 'keyword-detector':
+      case "keyword-detector":
         return processKeywordDetector(input);
 
-      case 'stop-continuation':
+      case "stop-continuation":
         return await processStopContinuation(input);
 
-      case 'ralph':
+      case "ralph":
         return await processRalph(input);
 
-      case 'persistent-mode':
+      case "persistent-mode":
         return await processPersistentMode(input);
 
-      case 'session-start':
+      case "session-start":
         return await processSessionStart(input);
 
-      case 'pre-tool-use':
+      case "pre-tool-use":
         return processPreToolUse(input);
 
-      case 'post-tool-use':
+      case "post-tool-use":
         return processPostToolUse(input);
 
-      case 'autopilot':
+      case "autopilot":
         return processAutopilot(input);
 
       // New async hook types
-      case 'session-end':
-        return await handleSessionEnd(input as unknown as SessionEndInput);
+      case "session-end": {
+        if (!validateHookInput<SessionEndInput>(input, ["session_id", "cwd"])) {
+          console.error(
+            "[hook-bridge] Invalid SessionEndInput - missing required fields",
+          );
+          return { continue: true };
+        }
+        return await handleSessionEnd(input as SessionEndInput);
+      }
 
-      case 'subagent-start':
-        return processSubagentStart(input as unknown as SubagentStartInput);
+      case "subagent-start": {
+        if (
+          !validateHookInput<SubagentStartInput>(input, ["session_id", "cwd"])
+        ) {
+          console.error(
+            "[hook-bridge] Invalid SubagentStartInput - missing required fields",
+          );
+          return { continue: true };
+        }
+        const startInput = input as SubagentStartInput;
+        // Record to session replay
+        recordAgentStart(
+          startInput.cwd,
+          startInput.session_id,
+          startInput.agent_id,
+          startInput.agent_type,
+          startInput.prompt,
+          undefined, // parentMode detected in tracker
+          startInput.model,
+        );
+        return processSubagentStart(startInput);
+      }
 
-      case 'subagent-stop':
-        return processSubagentStop(input as unknown as SubagentStopInput);
+      case "subagent-stop": {
+        if (
+          !validateHookInput<SubagentStopInput>(input, ["session_id", "cwd"])
+        ) {
+          console.error(
+            "[hook-bridge] Invalid SubagentStopInput - missing required fields",
+          );
+          return { continue: true };
+        }
+        const stopInput = input as SubagentStopInput;
+        const result = processSubagentStop(stopInput);
+        // Record to session replay (default to true when SDK doesn't provide success)
+        recordAgentStop(
+          stopInput.cwd,
+          stopInput.session_id,
+          stopInput.agent_id,
+          stopInput.agent_type,
+          stopInput.success !== false,
+        );
+        return result;
+      }
 
-      case 'pre-compact':
-        return await processPreCompact(input as unknown as PreCompactInput);
+      case "pre-compact": {
+        if (!validateHookInput<PreCompactInput>(input, ["session_id", "cwd"])) {
+          console.error(
+            "[hook-bridge] Invalid PreCompactInput - missing required fields",
+          );
+          return { continue: true };
+        }
+        return await processPreCompact(input as PreCompactInput);
+      }
 
-      case 'setup-init':
+      case "setup-init":
+      case "setup-maintenance": {
+        if (!validateHookInput<SetupInput>(input, ["session_id", "cwd"])) {
+          console.error(
+            "[hook-bridge] Invalid SetupInput - missing required fields",
+          );
+          return { continue: true };
+        }
         return await processSetup({
-          ...input,
-          trigger: 'init',
-          hook_event_name: 'Setup'
-        } as unknown as SetupInput);
+          ...(input as SetupInput),
+          trigger: hookType === "setup-init" ? "init" : "maintenance",
+          hook_event_name: "Setup",
+        });
+      }
 
-      case 'setup-maintenance':
-        return await processSetup({
-          ...input,
-          trigger: 'maintenance',
-          hook_event_name: 'Setup'
-        } as unknown as SetupInput);
-
-      case 'permission-request':
-        return await handlePermissionRequest(input as unknown as PermissionRequestInput);
+      case "permission-request": {
+        if (
+          !validateHookInput<PermissionRequestInput>(input, [
+            "session_id",
+            "cwd",
+            "tool_name",
+          ])
+        ) {
+          console.error(
+            "[hook-bridge] Invalid PermissionRequestInput - missing required fields",
+          );
+          return { continue: true };
+        }
+        return await handlePermissionRequest(input as PermissionRequestInput);
+      }
 
       default:
         return { continue: true };
@@ -609,14 +821,19 @@ export async function processHook(
  */
 export async function main(): Promise<void> {
   const args = process.argv.slice(2);
-  const hookArg = args.find(a => a.startsWith('--hook='));
+  const hookArg = args.find((a) => a.startsWith("--hook="));
 
   if (!hookArg) {
-    console.error('Usage: node hook-bridge.mjs --hook=<type>');
+    console.error("Usage: node hook-bridge.mjs --hook=<type>");
     process.exit(1);
   }
 
-  const hookType = hookArg.split('=')[1] as HookType;
+  const hookTypeRaw = hookArg.slice("--hook=".length).trim();
+  if (!hookTypeRaw) {
+    console.error("Invalid hook argument format: missing hook type");
+    process.exit(1);
+  }
+  const hookType = hookTypeRaw as HookType;
 
   // Read stdin
   const chunks: Buffer[] = [];
@@ -624,7 +841,7 @@ export async function main(): Promise<void> {
     chunks.push(chunk);
   }
 
-  const inputStr = Buffer.concat(chunks).toString('utf-8');
+  const inputStr = Buffer.concat(chunks).toString("utf-8");
 
   let input: HookInput;
   try {
@@ -641,9 +858,9 @@ export async function main(): Promise<void> {
 }
 
 // Run if called directly
-if (import.meta.url === `file://${process.argv[1]}`) {
-  main().catch(err => {
-    console.error('[hook-bridge] Fatal error:', err);
+if (import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main().catch((err) => {
+    console.error("[hook-bridge] Fatal error:", err);
     process.exit(1);
   });
 }
