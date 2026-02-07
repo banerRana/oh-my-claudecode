@@ -263,15 +263,23 @@ describe('Agents Element', () => {
 
   describe('Agent type codes', () => {
     const testCases = [
+      // Architect variants
       { type: 'architect', model: 'opus', expected: 'A' },
       { type: 'architect-low', model: 'haiku', expected: 'a' },
       { type: 'architect-medium', model: 'sonnet', expected: 'a' },
+      // Explore variants
       { type: 'explore', model: 'haiku', expected: 'e' },
+      { type: 'explore-high', model: 'opus', expected: 'E' },
+      // Executor variants
       { type: 'executor', model: 'sonnet', expected: 'x' },
       { type: 'executor-low', model: 'haiku', expected: 'x' },
       { type: 'executor-high', model: 'opus', expected: 'X' },
+      { type: 'deep-executor', model: 'opus', expected: 'X' },
+      // Designer variants
       { type: 'designer', model: 'sonnet', expected: 'd' },
+      { type: 'designer-low', model: 'haiku', expected: 'd' },
       { type: 'designer-high', model: 'opus', expected: 'D' },
+      // Single-tier agents
       { type: 'researcher', model: 'sonnet', expected: 'r' },
       { type: 'writer', model: 'haiku', expected: 'w' },
       { type: 'planner', model: 'opus', expected: 'P' },
@@ -279,6 +287,18 @@ describe('Agents Element', () => {
       { type: 'analyst', model: 'opus', expected: 'T' },
       { type: 'qa-tester', model: 'sonnet', expected: 'q' },
       { type: 'vision', model: 'sonnet', expected: 'v' },
+      // Scientist variants
+      { type: 'scientist', model: 'sonnet', expected: 's' },
+      { type: 'scientist-high', model: 'opus', expected: 'S' },
+      // Security variants
+      { type: 'security-reviewer', model: 'opus', expected: 'K' },
+      { type: 'security-reviewer-low', model: 'haiku', expected: 'k' },
+      // Build / TDD / Code Review / Git
+      { type: 'build-fixer', model: 'sonnet', expected: 'b' },
+      { type: 'tdd-guide', model: 'sonnet', expected: 'g' },
+      { type: 'tdd-guide-low', model: 'haiku', expected: 'g' },
+      { type: 'code-reviewer', model: 'opus', expected: 'R' },
+      { type: 'git-master', model: 'sonnet', expected: 'm' },
     ];
 
     testCases.forEach(({ type, model, expected }) => {

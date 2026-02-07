@@ -32,6 +32,7 @@ const AGENT_TYPE_CODES: Record<string, string> = {
 
   // Explore variants - 'E' for Explore
   explore: 'e',             // haiku
+  'explore-high': 'E',      // opus
 
   // Designer variants - 'D' for Designer
   designer: 'd',            // sonnet
@@ -55,11 +56,35 @@ const AGENT_TYPE_CODES: Record<string, string> = {
   'executor-low': 'x',      // haiku
   'executor-high': 'X',     // opus
 
+  // Deep Executor - 'X' (same family as executor, opus tier)
+  'deep-executor': 'X',     // opus
+
   // Planner - 'P' for Planner
   planner: 'P',             // opus
 
   // QA-Tester variants - 'Q' for QA
   'qa-tester': 'q',         // sonnet
+
+  // Scientist variants - 'S' for Scientist
+  scientist: 's',           // sonnet
+  'scientist-high': 'S',    // opus
+
+  // Security Reviewer - 'K' for Security (S taken by Scientist)
+  'security-reviewer': 'K',      // opus
+  'security-reviewer-low': 'k',  // haiku
+
+  // Build Fixer - 'B' for Build
+  'build-fixer': 'b',       // sonnet
+
+  // TDD Guide - 'G' for Guide
+  'tdd-guide': 'g',         // sonnet
+  'tdd-guide-low': 'g',     // haiku
+
+  // Code Reviewer - 'R' for Review (uppercase, opus tier)
+  'code-reviewer': 'R',     // opus
+
+  // Git Master - 'M' for Master
+  'git-master': 'm',        // sonnet
 };
 
 /**
@@ -225,12 +250,23 @@ export function renderAgentsDetailed(agents: ActiveAgent[]): string | null {
     if (name === 'executor') name = 'exec';
     if (name === 'executor-low') name = 'exec-l';
     if (name === 'executor-high') name = 'exec-h';
+    if (name === 'deep-executor') name = 'deep-x';
     if (name === 'designer') name = 'design';
     if (name === 'designer-low') name = 'design-l';
     if (name === 'designer-high') name = 'design-h';
     if (name === 'qa-tester') name = 'qa';
     if (name === 'architect-medium') name = 'arch-m';
     if (name === 'architect-low') name = 'arch-l';
+    if (name === 'explore-high') name = 'explore-h';
+    if (name === 'scientist') name = 'sci';
+    if (name === 'scientist-high') name = 'sci-h';
+    if (name === 'security-reviewer') name = 'sec';
+    if (name === 'security-reviewer-low') name = 'sec-l';
+    if (name === 'build-fixer') name = 'build';
+    if (name === 'tdd-guide') name = 'tdd';
+    if (name === 'tdd-guide-low') name = 'tdd-l';
+    if (name === 'code-reviewer') name = 'review';
+    if (name === 'git-master') name = 'git';
 
     // Add duration if significant
     const durationMs = now - a.startTime.getTime();
@@ -265,6 +301,7 @@ function getShortAgentName(agentType: string): string {
     'executor': 'exec',
     'executor-low': 'exec',
     'executor-high': 'exec',
+    'deep-executor': 'deep-x',
     // Designer variants -> 'design'
     'designer': 'design',
     'designer-low': 'design',
@@ -275,8 +312,22 @@ function getShortAgentName(agentType: string): string {
     // Collapse tier variants to base name
     'architect-low': 'arch',
     'architect-medium': 'arch',
+    // Explore variants
+    'explore-high': 'explore',
     // QA variants
     'qa-tester': 'qa',
+    // Scientist variants
+    'scientist-high': 'sci',
+    'scientist': 'sci',
+    // Security variants
+    'security-reviewer': 'sec',
+    'security-reviewer-low': 'sec',
+    // Build / TDD / Code Review / Git
+    'build-fixer': 'build',
+    'tdd-guide': 'tdd',
+    'tdd-guide-low': 'tdd',
+    'code-reviewer': 'review',
+    'git-master': 'git',
   };
 
   return abbrevs[name] || name;
