@@ -16,40 +16,16 @@
 import { pathToFileURL } from 'url';
 import { existsSync, readFileSync } from "fs";
 import { join } from "path";
+
+// Hot-path imports: needed on every/most hook invocations (keyword-detector, pre/post-tool-use)
 import { removeCodeBlocks, getAllKeywords } from "./keyword-detector/index.js";
-import {
-  readRalphState,
-  incrementRalphIteration,
-  clearRalphState,
-  createRalphLoopHook,
-} from "./ralph/index.js";
-import { processOrchestratorPreTool } from "./omc-orchestrator/index.js";
+import { processOrchestratorPreTool, processOrchestratorPostTool } from "./omc-orchestrator/index.js";
+import { normalizeHookInput } from "./bridge-normalize.js";
 import {
   addBackgroundTask,
   getRunningTaskCount,
 } from "../hud/background-tasks.js";
 import { loadConfig } from "../config/loader.js";
-import {
-  readVerificationState,
-  getArchitectVerificationPrompt,
-  clearVerificationState,
-} from "./ralph/index.js";
-import {
-  checkIncompleteTodos,
-  StopContext,
-} from "./todo-continuation/index.js";
-import {
-  checkPersistentModes,
-  createHookOutput,
-} from "./persistent-mode/index.js";
-import { activateUltrawork, readUltraworkState } from "./ultrawork/index.js";
-import {
-  readAutopilotState,
-  isAutopilotActive,
-  getPhasePrompt,
-  transitionPhase,
-  formatCompactSummary,
-} from "./autopilot/index.js";
 import {
   ULTRAWORK_MESSAGE,
   ULTRATHINK_MESSAGE,
@@ -58,36 +34,22 @@ import {
   TODO_CONTINUATION_PROMPT,
   RALPH_MESSAGE,
 } from "../installer/hooks.js";
-
-// New async hook imports
+// Agent dashboard is used in pre/post-tool-use hot path
 import {
-  processSubagentStart,
-  processSubagentStop,
   getAgentDashboard,
-  getAgentObservatory,
-  recordFileOwnership,
-  suggestInterventions,
-  type SubagentStartInput,
-  type SubagentStopInput,
 } from "./subagent-tracker/index.js";
-
+// Session replay recordFileTouch is used in pre-tool-use hot path
 import {
-  recordAgentStart,
-  recordAgentStop,
-  recordToolEvent,
   recordFileTouch,
 } from "./subagent-tracker/session-replay.js";
-import {
-  processPreCompact,
-  type PreCompactInput,
-} from "./pre-compact/index.js";
-import { processSetup, type SetupInput } from "./setup/index.js";
-import {
-  handlePermissionRequest,
-  type PermissionRequestInput,
-} from "./permission-handler/index.js";
-import { handleSessionEnd, type SessionEndInput } from "./session-end/index.js";
-import { initSilentAutoUpdate } from "../features/auto-update.js";
+
+// Type-only imports for lazy-loaded modules (zero runtime cost)
+import type { SubagentStartInput, SubagentStopInput } from "./subagent-tracker/index.js";
+import type { PreCompactInput } from "./pre-compact/index.js";
+import type { SetupInput } from "./setup/index.js";
+import type { PermissionRequestInput } from "./permission-handler/index.js";
+import type { SessionEndInput } from "./session-end/index.js";
+import type { StopContext } from "./todo-continuation/index.js";
 
 const PKILL_F_FLAG_PATTERN = /\bpkill\b.*\s-f\b/;
 const PKILL_FULL_FLAG_PATTERN = /\bpkill\b.*--full\b/;
@@ -292,7 +254,7 @@ function getPromptText(input: HookInput): string {
  * Detects magic keywords and returns injection message
  * Also activates persistent state for modes that require it (ralph, ultrawork)
  */
-function processKeywordDetector(input: HookInput): HookOutput {
+async function processKeywordDetector(input: HookInput): Promise<HookOutput> {
   const promptText = getPromptText(input);
   if (!promptText) {
     return { continue: true };
@@ -316,6 +278,8 @@ function processKeywordDetector(input: HookInput): HookOutput {
   for (const keywordType of keywords) {
     switch (keywordType) {
       case "ralph": {
+        // Lazy-load ralph module
+        const { createRalphLoopHook } = await import("./ralph/index.js");
         // Activate ralph state which also auto-activates ultrawork
         const hook = createRalphLoopHook(directory);
         hook.startLoop(sessionId || "cli-session", promptText);
@@ -323,11 +287,14 @@ function processKeywordDetector(input: HookInput): HookOutput {
         break;
       }
 
-      case "ultrawork":
+      case "ultrawork": {
+        // Lazy-load ultrawork module
+        const { activateUltrawork } = await import("./ultrawork/index.js");
         // Activate persistent ultrawork state
         activateUltrawork(promptText, sessionId, directory);
         messages.push(ULTRAWORK_MESSAGE);
         break;
+      }
 
       case "ultrathink":
         messages.push(ULTRATHINK_MESSAGE);
@@ -395,6 +362,16 @@ async function processRalph(input: HookInput): Promise<HookOutput> {
   if (!sessionId) {
     return { continue: true };
   }
+
+  // Lazy-load ralph module
+  const {
+    readRalphState,
+    incrementRalphIteration,
+    clearRalphState,
+    readVerificationState,
+    getArchitectVerificationPrompt,
+    clearVerificationState,
+  } = await import("./ralph/index.js");
 
   // Read Ralph state
   const state = readRalphState(directory);
@@ -466,6 +443,9 @@ async function processPersistentMode(input: HookInput): Promise<HookOutput> {
   const sessionId = input.sessionId;
   const directory = input.directory || process.cwd();
 
+  // Lazy-load persistent-mode and todo-continuation modules
+  const { checkPersistentModes, createHookOutput } = await import("./persistent-mode/index.js");
+
   // Extract stop context for abort detection (supports both camelCase and snake_case)
   const stopContext: StopContext = {
     stop_reason: (input as Record<string, unknown>).stop_reason as
@@ -522,6 +502,12 @@ When team verification passes or cancel is requested, allow terminal cleanup beh
 async function processSessionStart(input: HookInput): Promise<HookOutput> {
   const sessionId = input.sessionId;
   const directory = input.directory || process.cwd();
+
+  // Lazy-load session-start dependencies
+  const { initSilentAutoUpdate } = await import("../features/auto-update.js");
+  const { readAutopilotState } = await import("./autopilot/index.js");
+  const { readUltraworkState } = await import("./ultrawork/index.js");
+  const { checkIncompleteTodos } = await import("./todo-continuation/index.js");
 
   // Trigger silent auto-update check (non-blocking, checks config internally)
   initSilentAutoUpdate();
@@ -764,16 +750,36 @@ function processPreToolUse(input: HookInput): HookOutput {
  */
 function processPostToolUse(input: HookInput): HookOutput {
   const directory = input.directory || process.cwd();
+  const messages: string[] = [];
+
+  // Run orchestrator post-tool processing (remember tags, verification reminders, etc.)
+  const orchestratorResult = processOrchestratorPostTool(
+    {
+      toolName: input.toolName || "",
+      toolInput: (input.toolInput as Record<string, unknown>) || {},
+      sessionId: input.sessionId,
+      directory,
+    },
+    String(input.toolOutput ?? ""),
+  );
+
+  if (orchestratorResult.message) {
+    messages.push(orchestratorResult.message);
+  }
 
   // After Task completion, show updated agent dashboard
   if (input.toolName === "Task") {
     const dashboard = getAgentDashboard(directory);
     if (dashboard) {
-      return {
-        continue: true,
-        message: dashboard,
-      };
+      messages.push(dashboard);
     }
+  }
+
+  if (messages.length > 0) {
+    return {
+      continue: true,
+      message: messages.join("\n\n"),
+    };
   }
 
   return { continue: true };
@@ -783,8 +789,11 @@ function processPostToolUse(input: HookInput): HookOutput {
  * Process autopilot hook
  * Manages autopilot state and injects phase prompts
  */
-function processAutopilot(input: HookInput): HookOutput {
+async function processAutopilot(input: HookInput): Promise<HookOutput> {
   const directory = input.directory || process.cwd();
+
+  // Lazy-load autopilot module
+  const { readAutopilotState, getPhasePrompt } = await import("./autopilot/index.js");
 
   const state = readAutopilotState(directory);
 
@@ -838,7 +847,7 @@ export function resetSkipHooksCache(): void {
  */
 export async function processHook(
   hookType: HookType,
-  input: HookInput,
+  rawInput: HookInput,
 ): Promise<HookOutput> {
   // Environment kill-switches for plugin coexistence
   if (process.env.DISABLE_OMC === "1" || process.env.DISABLE_OMC === "true") {
@@ -849,10 +858,13 @@ export async function processHook(
     return { continue: true };
   }
 
+  // Normalize snake_case fields from Claude Code to camelCase
+  const input = normalizeHookInput(rawInput) as HookInput;
+
   try {
     switch (hookType) {
       case "keyword-detector":
-        return processKeywordDetector(input);
+        return await processKeywordDetector(input);
 
       case "stop-continuation":
         return await processStopContinuation(input);
@@ -873,9 +885,9 @@ export async function processHook(
         return processPostToolUse(input);
 
       case "autopilot":
-        return processAutopilot(input);
+        return await processAutopilot(input);
 
-      // New async hook types
+      // Lazy-loaded async hook types
       case "session-end": {
         if (!validateHookInput<SessionEndInput>(input, ["session_id", "cwd"])) {
           console.error(
@@ -883,6 +895,7 @@ export async function processHook(
           );
           return { continue: true };
         }
+        const { handleSessionEnd } = await import("./session-end/index.js");
         return await handleSessionEnd(input as SessionEndInput);
       }
 
@@ -895,6 +908,8 @@ export async function processHook(
           );
           return { continue: true };
         }
+        const { processSubagentStart } = await import("./subagent-tracker/index.js");
+        const { recordAgentStart } = await import("./subagent-tracker/session-replay.js");
         const startInput = input as SubagentStartInput;
         // Record to session replay
         recordAgentStart(
@@ -918,6 +933,8 @@ export async function processHook(
           );
           return { continue: true };
         }
+        const { processSubagentStop } = await import("./subagent-tracker/index.js");
+        const { recordAgentStop } = await import("./subagent-tracker/session-replay.js");
         const stopInput = input as SubagentStopInput;
         const result = processSubagentStop(stopInput);
         // Record to session replay (default to true when SDK doesn't provide success)
@@ -938,6 +955,7 @@ export async function processHook(
           );
           return { continue: true };
         }
+        const { processPreCompact } = await import("./pre-compact/index.js");
         return await processPreCompact(input as PreCompactInput);
       }
 
@@ -949,6 +967,7 @@ export async function processHook(
           );
           return { continue: true };
         }
+        const { processSetup } = await import("./setup/index.js");
         return await processSetup({
           ...(input as SetupInput),
           trigger: hookType === "setup-init" ? "init" : "maintenance",
@@ -969,6 +988,7 @@ export async function processHook(
           );
           return { continue: true };
         }
+        const { handlePermissionRequest } = await import("./permission-handler/index.js");
         return await handlePermissionRequest(input as PermissionRequestInput);
       }
 

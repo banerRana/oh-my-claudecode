@@ -147,7 +147,8 @@ describe('prompt-injection', () => {
     test('separates sections with double newlines', () => {
       const result = buildPromptWithSystemContext('User', 'Files', 'System');
       // Should have double newline separators between sections
-      expect(result).toContain('</system-instructions>\n\nFiles');
+      // File context is now wrapped with UNTRUSTED DATA warning (Phase 1 security fix)
+      expect(result).toContain('</system-instructions>\n\nIMPORTANT:');
       expect(result).toContain('Files\n\nUser');
     });
 

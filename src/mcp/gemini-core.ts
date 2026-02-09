@@ -17,7 +17,7 @@ import { existsSync, mkdirSync, readFileSync, realpathSync, statSync, writeFileS
 import { dirname, resolve, relative, sep, isAbsolute, basename, join } from 'path';
 import { detectGeminiCli } from './cli-detection.js';
 import { getWorktreeRoot } from '../lib/worktree-paths.js';
-import { resolveSystemPrompt, buildPromptWithSystemContext, VALID_AGENT_ROLES } from './prompt-injection.js';
+import { resolveSystemPrompt, buildPromptWithSystemContext, wrapUntrustedFileContent, VALID_AGENT_ROLES } from './prompt-injection.js';
 import { persistPrompt, persistResponse, getExpectedResponsePath } from './prompt-persistence.js';
 import { writeJobStatus, getStatusFilePath, readJobStatus } from './prompt-persistence.js';
 import type { JobStatus, BackgroundJobMeta } from './prompt-persistence.js';
@@ -56,6 +56,7 @@ export const GEMINI_TIMEOUT = Math.min(Math.max(5000, parseInt(process.env.OMC_G
 export const GEMINI_RECOMMENDED_ROLES = ['designer', 'writer', 'vision'] as const;
 
 export const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB per file
+export const MAX_STDOUT_BYTES = 10 * 1024 * 1024; // 10MB stdout cap
 
 /**
  * Check if Gemini output/stderr indicates a rate-limit (429) or quota error
@@ -105,9 +106,20 @@ export function executeGemini(prompt: string, model?: string, cwd?: string): Pro
 
     let stdout = '';
     let stderr = '';
+    let stdoutBytes = 0;
+    let stdoutTruncated = false;
 
     child.stdout.on('data', (data: Buffer) => {
-      stdout += data.toString();
+      if (!stdoutTruncated) {
+        stdoutBytes += data.length;
+        if (stdoutBytes > MAX_STDOUT_BYTES) {
+          stdout += data.toString().slice(0, Math.max(0, data.length - (stdoutBytes - MAX_STDOUT_BYTES)));
+          stdout += '\n\n[OUTPUT TRUNCATED: exceeded 10MB limit]';
+          stdoutTruncated = true;
+        } else {
+          stdout += data.toString();
+        }
+      }
     });
 
     child.stderr.on('data', (data: Buffer) => {
@@ -216,6 +228,8 @@ export function executeGeminiBackground(
 
       let stdout = '';
       let stderr = '';
+      let stdoutBytes = 0;
+      let stdoutTruncated = false;
       let settled = false;
 
       const timeoutHandle = setTimeout(() => {
@@ -236,7 +250,18 @@ export function executeGeminiBackground(
         }
       }, GEMINI_TIMEOUT);
 
-      child.stdout?.on('data', (data: Buffer) => { stdout += data.toString(); });
+      child.stdout?.on('data', (data: Buffer) => {
+        if (!stdoutTruncated) {
+          stdoutBytes += data.length;
+          if (stdoutBytes > MAX_STDOUT_BYTES) {
+            stdout += data.toString().slice(0, Math.max(0, data.length - (stdoutBytes - MAX_STDOUT_BYTES)));
+            stdout += '\n\n[OUTPUT TRUNCATED: exceeded 10MB limit]';
+            stdoutTruncated = true;
+          } else {
+            stdout += data.toString();
+          }
+        }
+      });
       child.stderr?.on('data', (data: Buffer) => { stderr += data.toString(); });
 
       child.stdin?.on('error', (err: Error) => {
@@ -395,7 +420,7 @@ export function validateAndReadFile(filePath: string, baseDir?: string): string 
     if (stats.size > MAX_FILE_SIZE) {
       return `--- File: ${filePath} --- (File too large: ${(stats.size / 1024 / 1024).toFixed(1)}MB, max 5MB)`;
     }
-    return `--- File: ${filePath} ---\n${readFileSync(resolvedReal, 'utf-8')}`;
+    return wrapUntrustedFileContent(filePath, readFileSync(resolvedReal, 'utf-8'));
   } catch {
     return `--- File: ${filePath} --- (Error reading file)`;
   }
@@ -733,6 +758,13 @@ ${resolvedPrompt}`;
             }
           } catch (err) {
             console.warn(`[gemini-core] Failed to write output file: ${(err as Error).message}`);
+            return {
+              content: [{
+                type: 'text' as const,
+                text: `${fallbackNote}${paramLines}\n\n---\n\nFailed to write output file '${args.output_file}': ${(err as Error).message}`
+              }],
+              isError: true
+            };
           }
         }
       }

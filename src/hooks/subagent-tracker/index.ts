@@ -323,6 +323,8 @@ function writeTrackingStateImmediate(
 
 /**
  * Write tracking state with debouncing to reduce I/O.
+ * The flush callback reacquires the lock and merges with the latest disk state
+ * to prevent data loss from concurrent writers.
  */
 export function writeTrackingState(
   directory: string,
@@ -335,9 +337,21 @@ export function writeTrackingState(
 
   const timeout = setTimeout(() => {
     const pending = pendingWrites.get(directory);
-    if (pending) {
+    if (!pending) return;
+
+    pendingWrites.delete(directory);
+
+    // Reacquire lock inside the flush callback for atomicity
+    if (!acquireLock(directory)) {
+      // Could not acquire lock; write without lock as best-effort fallback
       writeTrackingStateImmediate(directory, pending.state);
-      pendingWrites.delete(directory);
+      return;
+    }
+
+    try {
+      writeTrackingStateImmediate(directory, pending.state);
+    } finally {
+      releaseLock(directory);
     }
   }, WRITE_DEBOUNCE_MS);
 

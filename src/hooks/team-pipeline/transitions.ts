@@ -9,7 +9,7 @@ const ALLOWED: Record<TeamPipelinePhase, TeamPipelinePhase[]> = {
   'team-fix': ['team-exec', 'team-verify', 'complete', 'failed'],
   complete: [],
   failed: [],
-  cancelled: [],
+  cancelled: ['team-plan', 'team-exec'],
 };
 
 function isAllowedTransition(from: TeamPipelinePhase, to: TeamPipelinePhase): boolean {
@@ -21,7 +21,7 @@ function hasRequiredArtifactsForPhase(state: TeamPipelineState, next: TeamPipeli
     return Boolean(state.artifacts.plan_path || state.artifacts.prd_path);
   }
   if (next === 'team-verify') {
-    return state.execution.tasks_total >= state.execution.tasks_completed;
+    return state.execution.tasks_total > 0 && state.execution.tasks_completed >= state.execution.tasks_total;
   }
   return true;
 }
@@ -37,6 +37,24 @@ export function transitionTeamPhase(
       state,
       reason: `Illegal transition: ${state.phase} -> ${next}`,
     };
+  }
+
+  // When resuming from cancelled, require preserve_for_resume flag
+  if (state.phase === 'cancelled') {
+    if (!state.cancel.preserve_for_resume) {
+      return {
+        ok: false,
+        state,
+        reason: `Cannot resume from cancelled: preserve_for_resume is not set`,
+      };
+    }
+    // Re-activate the state on resume
+    const resumed: TeamPipelineState = {
+      ...state,
+      active: true,
+      completed_at: null,
+    };
+    return markTeamPhase(resumed, next, reason ?? 'resumed-from-cancelled');
   }
 
   if (!hasRequiredArtifactsForPhase(state, next)) {

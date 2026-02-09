@@ -40,6 +40,26 @@ const LOCAL_STATE_DIR = OmcPaths.STATE;
  */
 const GLOBAL_STATE_DIR = path.join(os.homedir(), ".omc", "state");
 
+/** Maximum age for state files before they are considered stale (4 hours) */
+const MAX_STATE_AGE_MS = 4 * 60 * 60 * 1000;
+
+// Read cache: avoids re-reading unchanged state files within TTL
+const STATE_CACHE_TTL_MS = 5_000; // 5 seconds
+interface CacheEntry {
+  data: unknown;
+  mtime: number;
+  cachedAt: number;
+}
+const stateCache = new Map<string, CacheEntry>();
+
+/**
+ * Clear the state read cache.
+ * Exported for testing and for write/clear operations to invalidate stale entries.
+ */
+export function clearStateCache(): void {
+  stateCache.clear();
+}
+
 // Legacy state locations (for backward compatibility)
 const LEGACY_LOCATIONS: Record<string, string[]> = {
   boulder: [".omc/boulder.json"],
@@ -100,9 +120,54 @@ export function readState<T = StateData>(
 
   // Try standard location first
   if (fs.existsSync(standardPath)) {
+    // Check cache: if entry exists, mtime matches, and TTL not expired, return cached data
+    try {
+      const stat = fs.statSync(standardPath);
+      const mtime = stat.mtimeMs;
+      const cached = stateCache.get(standardPath);
+      if (cached && cached.mtime === mtime && (Date.now() - cached.cachedAt) < STATE_CACHE_TTL_MS) {
+        return {
+          exists: true,
+          data: cached.data as T,
+          foundAt: standardPath,
+          legacyLocations: [],
+        };
+      }
+    } catch {
+      // statSync failed, proceed to read
+    }
+
     try {
       const content = fs.readFileSync(standardPath, "utf-8");
       const data = JSON.parse(content) as T;
+
+      // Update cache
+      try {
+        const stat = fs.statSync(standardPath);
+        stateCache.set(standardPath, { data, mtime: stat.mtimeMs, cachedAt: Date.now() });
+      } catch {
+        // statSync failed, skip caching
+      }
+
+      // Check for stale state: if _meta.updatedAt is older than TTL, auto-mark inactive
+      const record = data as Record<string, unknown>;
+      const meta = record._meta as Record<string, unknown> | undefined;
+      if (meta?.updatedAt) {
+        const updatedAt = new Date(meta.updatedAt as string).getTime();
+        if (!isNaN(updatedAt) && Date.now() - updatedAt > MAX_STATE_AGE_MS) {
+          if (record.active === true) {
+            console.warn(
+              `[state-manager] State "${name}" is stale (last updated ${meta.updatedAt}), marking inactive`,
+            );
+            record.active = false;
+            // Write back the deactivated state
+            try {
+              atomicWriteJsonSync(standardPath, record);
+            } catch { /* best-effort */ }
+          }
+        }
+      }
+
       return {
         exists: true,
         data,
@@ -164,6 +229,9 @@ export function writeState<T = StateData>(
   const createDirs = options?.createDirs ?? DEFAULT_STATE_CONFIG.createDirs;
   const statePath = getStatePath(name, location);
 
+  // Invalidate cache on write
+  stateCache.delete(statePath);
+
   try {
     // Ensure directory exists
     if (createDirs) {
@@ -195,6 +263,14 @@ export function clearState(
   name: string,
   location?: StateLocation,
 ): StateClearResult {
+  // Invalidate cache for all possible locations
+  const locationsForCache: StateLocation[] = location
+    ? [location]
+    : [StateLocation.LOCAL, StateLocation.GLOBAL];
+  for (const loc of locationsForCache) {
+    stateCache.delete(getStatePath(name, loc));
+  }
+
   const result: StateClearResult = {
     removed: [],
     notFound: [],
@@ -438,6 +514,65 @@ export function cleanupOrphanedStates(options?: CleanupOptions): CleanupResult {
   }
 
   return result;
+}
+
+/**
+ * Scan all state files in a directory and mark stale ones as inactive.
+ *
+ * A state is considered stale if its `_meta.updatedAt` timestamp is older
+ * than `maxAgeMs` (defaults to MAX_STATE_AGE_MS = 4 hours).
+ *
+ * @returns Number of states that were marked inactive.
+ */
+export function cleanupStaleStates(
+  directory?: string,
+  maxAgeMs: number = MAX_STATE_AGE_MS,
+): number {
+  const stateDir = directory
+    ? path.join(directory, ".omc", "state")
+    : LOCAL_STATE_DIR;
+
+  if (!fs.existsSync(stateDir)) return 0;
+
+  let cleaned = 0;
+  const now = Date.now();
+
+  try {
+    const files = fs.readdirSync(stateDir);
+    for (const file of files) {
+      if (!file.endsWith(".json")) continue;
+
+      const filePath = path.join(stateDir, file);
+      try {
+        const content = fs.readFileSync(filePath, "utf-8");
+        const data = JSON.parse(content) as Record<string, unknown>;
+
+        if (data.active !== true) continue;
+
+        const meta = data._meta as Record<string, unknown> | undefined;
+        const updatedAt = meta?.updatedAt
+          ? new Date(meta.updatedAt as string).getTime()
+          : undefined;
+
+        if (updatedAt && !isNaN(updatedAt) && now - updatedAt > maxAgeMs) {
+          console.warn(
+            `[state-manager] cleanupStaleStates: marking "${file}" inactive (last updated ${meta!.updatedAt})`,
+          );
+          data.active = false;
+          try {
+            atomicWriteJsonSync(filePath, data);
+            cleaned++;
+          } catch { /* best-effort */ }
+        }
+      } catch {
+        // Skip files that can't be read/parsed
+      }
+    }
+  } catch {
+    // Directory read error
+  }
+
+  return cleaned;
 }
 
 /**

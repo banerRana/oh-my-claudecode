@@ -559,11 +559,23 @@ export class LspClient {
   }
 }
 
+/** Idle timeout: disconnect LSP clients unused for 5 minutes */
+const IDLE_TIMEOUT_MS = 5 * 60 * 1000;
+/** Check for idle clients every 60 seconds */
+const IDLE_CHECK_INTERVAL_MS = 60 * 1000;
+
 /**
  * Client manager - maintains a pool of LSP clients per workspace/server
+ * with idle eviction to free resources.
  */
 class LspClientManager {
   private clients = new Map<string, LspClient>();
+  private lastUsed = new Map<string, number>();
+  private idleTimer: ReturnType<typeof setInterval> | null = null;
+
+  constructor() {
+    this.startIdleCheck();
+  }
 
   /**
    * Get or create a client for a file
@@ -588,6 +600,9 @@ class LspClientManager {
         throw error;
       }
     }
+
+    // Track last-used timestamp
+    this.lastUsed.set(key, Date.now());
 
     return client;
   }
@@ -620,15 +635,62 @@ class LspClientManager {
   }
 
   /**
-   * Disconnect all clients
+   * Start periodic idle check
+   */
+  private startIdleCheck(): void {
+    if (this.idleTimer) return;
+    this.idleTimer = setInterval(() => {
+      this.evictIdleClients();
+    }, IDLE_CHECK_INTERVAL_MS);
+    // Allow the process to exit even if the timer is running
+    if (this.idleTimer && typeof this.idleTimer === 'object' && 'unref' in this.idleTimer) {
+      this.idleTimer.unref();
+    }
+  }
+
+  /**
+   * Evict clients that haven't been used within IDLE_TIMEOUT_MS
+   */
+  private evictIdleClients(): void {
+    const now = Date.now();
+    for (const [key, lastUsedTime] of this.lastUsed.entries()) {
+      if (now - lastUsedTime > IDLE_TIMEOUT_MS) {
+        const client = this.clients.get(key);
+        if (client) {
+          client.disconnect().catch(() => {
+            // Ignore disconnect errors during eviction
+          });
+          this.clients.delete(key);
+          this.lastUsed.delete(key);
+        }
+      }
+    }
+  }
+
+  /**
+   * Disconnect all clients and stop idle checking.
+   * Use for session cleanup.
    */
   async disconnectAll(): Promise<void> {
+    if (this.idleTimer) {
+      clearInterval(this.idleTimer);
+      this.idleTimer = null;
+    }
     for (const client of this.clients.values()) {
       await client.disconnect();
     }
     this.clients.clear();
+    this.lastUsed.clear();
   }
 }
 
 // Export a singleton instance
 export const lspClientManager = new LspClientManager();
+
+/**
+ * Disconnect all LSP clients and free resources.
+ * Exported for use in session-end hooks.
+ */
+export async function disconnectAll(): Promise<void> {
+  return lspClientManager.disconnectAll();
+}
