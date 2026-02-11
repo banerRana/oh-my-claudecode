@@ -17155,6 +17155,7 @@ async function handleAskCodex(args) {
   const pathPolicy = process.env.OMC_ALLOW_EXTERNAL_WORKDIR === "1" ? "permissive" : "strict";
   try {
     baseDirReal = (0, import_fs9.realpathSync)(baseDir);
+    baseDir = baseDirReal;
   } catch (err) {
     const errorToken = "E_WORKDIR_INVALID";
     return singleErrorBlock(`${errorToken}: working_directory '${args.working_directory}' does not exist or is not accessible.
@@ -17196,7 +17197,7 @@ Suggested: use a working_directory within the project worktree, or set OMC_ALLOW
     return singleErrorBlock(`Unknown agent_role: "${agent_role}". Available roles: ${VALID_AGENT_ROLES.join(", ")}. Recommended for Codex: ${CODEX_RECOMMENDED_ROLES.join(", ")}`);
   }
   const inlinePrompt = typeof args.prompt === "string" ? args.prompt : void 0;
-  const hasPromptFileField = Object.hasOwn(args, "prompt_file") && args.prompt_file !== void 0;
+  const hasPromptFileField = Object.prototype.hasOwnProperty.call(args, "prompt_file") && args.prompt_file !== void 0;
   const promptFileInput = hasPromptFileField && typeof args.prompt_file === "string" ? args.prompt_file : void 0;
   let resolvedPromptFile = promptFileInput;
   let resolvedOutputFile = typeof args.output_file === "string" ? args.output_file : void 0;

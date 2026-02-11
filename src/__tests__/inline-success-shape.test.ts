@@ -86,6 +86,7 @@ describe('Inline success response shape', () => {
     // Block 2: untrusted CLI response wrapper
     expect(result.content[1].type).toBe('text');
     expect(result.content[1].text).toContain('--- UNTRUSTED CLI RESPONSE');
+    expect(result.content[1].text).toContain('Analysis from Codex');
     expect(result.content[1].text).toContain('--- END UNTRUSTED CLI RESPONSE');
   });
 
@@ -126,6 +127,7 @@ describe('Inline success response shape', () => {
     // Block 2: untrusted CLI response wrapper
     expect(result.content[1].type).toBe('text');
     expect(result.content[1].text).toContain('--- UNTRUSTED CLI RESPONSE');
+    expect(result.content[1].text).toContain('Design review from Gemini');
     expect(result.content[1].text).toContain('--- END UNTRUSTED CLI RESPONSE');
   });
 

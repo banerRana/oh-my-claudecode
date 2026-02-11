@@ -16895,6 +16895,7 @@ async function handleAskGemini(args) {
   const pathPolicy = process.env.OMC_ALLOW_EXTERNAL_WORKDIR === "1" ? "permissive" : "strict";
   try {
     baseDirReal = (0, import_fs9.realpathSync)(baseDir);
+    baseDir = baseDirReal;
   } catch (err) {
     return singleErrorBlock(`E_WORKDIR_INVALID: working_directory '${args.working_directory}' does not exist or is not accessible.
 Error: ${err.message}
@@ -16934,7 +16935,7 @@ Suggested: use a working_directory within the project worktree, or set OMC_ALLOW
     return singleErrorBlock(`Unknown agent_role: "${agent_role}". Available roles: ${VALID_AGENT_ROLES.join(", ")}. Recommended for Gemini: ${GEMINI_RECOMMENDED_ROLES.join(", ")}`);
   }
   const inlinePrompt = typeof args.prompt === "string" ? args.prompt : void 0;
-  const hasPromptFileField = Object.hasOwn(args, "prompt_file") && args.prompt_file !== void 0;
+  const hasPromptFileField = Object.prototype.hasOwnProperty.call(args, "prompt_file") && args.prompt_file !== void 0;
   const promptFileInput = hasPromptFileField && typeof args.prompt_file === "string" ? args.prompt_file : void 0;
   let resolvedPromptFile = promptFileInput;
   let resolvedOutputFile = typeof args.output_file === "string" ? args.output_file : void 0;
@@ -17082,7 +17083,9 @@ ${detection.installHint}`);
     `**Agent Role:** ${agent_role}`,
     files?.length ? `**Files:** ${files.join(", ")}` : null,
     promptResult ? `**Prompt File:** ${promptResult.filePath}` : null,
-    expectedResponsePath ? `**Response File:** ${expectedResponsePath}` : null
+    expectedResponsePath ? `**Response File:** ${expectedResponsePath}` : null,
+    `**Resolved Working Directory:** ${baseDirReal}`,
+    `**Path Policy:** OMC_ALLOW_EXTERNAL_WORKDIR=${process.env.OMC_ALLOW_EXTERNAL_WORKDIR || "0 (enforced)"}`
   ].filter(Boolean).join("\n");
   const fallbackChain = buildFallbackChain("gemini", resolvedModel, config2.externalModels);
   let resolvedOutputPath;
@@ -17094,9 +17097,7 @@ ${detection.installHint}`);
     try {
       const response = await executeGemini(fullPrompt, tryModel, baseDir);
       const usedFallback = tryModel !== resolvedModel;
-      const fallbackNote = usedFallback ? `[Fallback: used ${tryModel} instead of ${resolvedModel}]
-
-` : "";
+      const fallbackLine = usedFallback ? `Fallback: used model ${tryModel}` : void 0;
       if (promptResult) {
         persistResponse({
           provider: "gemini",
@@ -17113,7 +17114,7 @@ ${detection.installHint}`);
       if (effectiveOutputFile && resolvedOutputPath) {
         const writeResult = safeWriteOutputFile(effectiveOutputFile, response, baseDirReal, "[gemini-core]");
         if (!writeResult.success) {
-          return singleErrorBlock(`${fallbackNote}${paramLines}
+          return singleErrorBlock(`${paramLines}
 
 ---
 
@@ -17123,11 +17124,10 @@ resolved_working_directory: ${baseDirReal}
 path_policy: ${pathPolicy}`);
         }
       }
-      const responseLines = [
-        `${fallbackNote}${paramLines}`,
-        `**Resolved Working Directory:** ${baseDirReal}`,
-        `**Path Policy:** OMC_ALLOW_EXTERNAL_WORKDIR=${process.env.OMC_ALLOW_EXTERNAL_WORKDIR || "0 (enforced)"}`
-      ];
+      const responseLines = [paramLines];
+      if (fallbackLine) {
+        responseLines.push(fallbackLine);
+      }
       if (isInlineMode) {
         responseLines.push(`**Request ID:** ${inlineRequestId}`);
         const metadataText = responseLines.join("\n");

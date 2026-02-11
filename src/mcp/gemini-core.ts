@@ -458,6 +458,7 @@ export async function handleAskGemini(args: {
 
   try {
     baseDirReal = realpathSync(baseDir);
+    baseDir = baseDirReal;
   } catch (err) {
     return singleErrorBlock(`E_WORKDIR_INVALID: working_directory '${args.working_directory}' does not exist or is not accessible.\nError: ${(err as Error).message}\nResolved working directory: ${baseDir}\nPath policy: ${pathPolicy}\nSuggested: ensure the working directory exists and is accessible`);
   }
@@ -501,7 +502,7 @@ export async function handleAskGemini(args: {
   // This handles JSON-RPC serializers that emit `prompt_file: undefined` as "not provided".
   // Separate intent detection (field presence) from content validation (non-empty).
   const inlinePrompt = typeof args.prompt === 'string' ? args.prompt : undefined;
-  const hasPromptFileField = Object.hasOwn(args, 'prompt_file') && args.prompt_file !== undefined;
+  const hasPromptFileField = Object.prototype.hasOwnProperty.call(args, 'prompt_file') && args.prompt_file !== undefined;
   const promptFileInput = hasPromptFileField && typeof args.prompt_file === 'string' ? args.prompt_file : undefined;
   let resolvedPromptFile = promptFileInput;
   let resolvedOutputFile = typeof args.output_file === 'string' ? args.output_file : undefined;
@@ -690,6 +691,8 @@ ${resolvedPrompt}`;
     files?.length ? `**Files:** ${files.join(', ')}` : null,
     promptResult ? `**Prompt File:** ${promptResult.filePath}` : null,
     expectedResponsePath ? `**Response File:** ${expectedResponsePath}` : null,
+    `**Resolved Working Directory:** ${baseDirReal}`,
+    `**Path Policy:** OMC_ALLOW_EXTERNAL_WORKDIR=${process.env.OMC_ALLOW_EXTERNAL_WORKDIR || '0 (enforced)'}`,
   ].filter(Boolean).join('\n');
 
   // Build fallback chain using the resolver
@@ -705,7 +708,7 @@ ${resolvedPrompt}`;
     try {
       const response = await executeGemini(fullPrompt, tryModel, baseDir);
       const usedFallback = tryModel !== resolvedModel;
-      const fallbackNote = usedFallback ? `[Fallback: used ${tryModel} instead of ${resolvedModel}]\n\n` : '';
+      const fallbackLine = usedFallback ? `Fallback: used model ${tryModel}` : undefined;
 
       // Persist response to disk (audit trail)
       if (promptResult) {
@@ -726,16 +729,15 @@ ${resolvedPrompt}`;
       if (effectiveOutputFile && resolvedOutputPath) {
         const writeResult = safeWriteOutputFile(effectiveOutputFile, response, baseDirReal, '[gemini-core]');
         if (!writeResult.success) {
-          return singleErrorBlock(`${fallbackNote}${paramLines}\n\n---\n\n${writeResult.errorMessage}\n\nresolved_working_directory: ${baseDirReal}\npath_policy: ${pathPolicy}`);
+          return singleErrorBlock(`${paramLines}\n\n---\n\n${writeResult.errorMessage}\n\nresolved_working_directory: ${baseDirReal}\npath_policy: ${pathPolicy}`);
         }
       }
 
-      // Build success response with metadata for path policy transparency
-      const responseLines = [
-        `${fallbackNote}${paramLines}`,
-        `**Resolved Working Directory:** ${baseDirReal}`,
-        `**Path Policy:** OMC_ALLOW_EXTERNAL_WORKDIR=${process.env.OMC_ALLOW_EXTERNAL_WORKDIR || '0 (enforced)'}`,
-      ];
+      // Build success response metadata (match Codex inline assembly pattern)
+      const responseLines = [paramLines];
+      if (fallbackLine) {
+        responseLines.push(fallbackLine);
+      }
 
       // In inline mode, return metadata + raw response as separate content blocks
       if (isInlineMode) {
