@@ -162,6 +162,16 @@ export function singleErrorBlock(text: string): { content: [{ type: 'text'; text
   return { content: [{ type: 'text' as const, text }], isError: true as const };
 }
 
+export function inlineSuccessBlocks(metadataText: string, wrappedResponse: string): { content: [{ type: 'text'; text: string }, { type: 'text'; text: string }]; isError: false } {
+  return {
+    content: [
+      { type: 'text' as const, text: metadataText },
+      { type: 'text' as const, text: wrappedResponse },
+    ],
+    isError: false as const,
+  };
+}
+
 /**
  * Build the full prompt with system prompt prepended.
  *

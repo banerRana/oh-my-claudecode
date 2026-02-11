@@ -3,7 +3,9 @@
  * Tests the actual parameter flow through handleAskCodex/handleAskGemini
  * with CLI detection mocked - verifies auto-persistence, output generation, and error handling.
  */
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { EventEmitter } from 'events';
+import { spawn } from 'child_process';
 import { handleAskCodex } from '../mcp/codex-core.js';
 import { handleAskGemini } from '../mcp/gemini-core.js';
 import { expectMissingPromptError, expectNoMissingPromptError } from './helpers/prompt-test-helpers.js';
@@ -20,6 +22,76 @@ vi.mock('child_process', () => ({
   execSync: vi.fn(),
   spawn: vi.fn(),
 }));
+
+function createMockChildProcess(stdoutData: string, exitCode: number = 0): any {
+  const proc = new EventEmitter();
+  const stdout = new EventEmitter();
+  const stderr = new EventEmitter();
+  const stdin = new EventEmitter() as EventEmitter & { write: any; end: any };
+  stdin.write = vi.fn();
+  stdin.end = vi.fn();
+  (proc as any).stdout = stdout;
+  (proc as any).stderr = stderr;
+  (proc as any).stdin = stdin;
+  (proc as any).kill = vi.fn();
+
+  process.nextTick(() => {
+    stdout.emit('data', Buffer.from(stdoutData));
+    process.nextTick(() => {
+      proc.emit('close', exitCode);
+    });
+  });
+
+  return proc;
+}
+
+const parityMatrix: Array<{
+  name: string;
+  args: Record<string, unknown>;
+  expectError: boolean;
+  expectMsg?: string;
+}> = [
+  { name: 'missing prompt source', args: { agent_role: 'architect' }, expectError: true, expectMsg: 'Either' },
+  { name: 'empty inline', args: { agent_role: 'architect', prompt: '' }, expectError: true, expectMsg: 'empty' },
+  { name: 'whitespace inline', args: { agent_role: 'architect', prompt: '   ' }, expectError: true, expectMsg: 'empty' },
+  { name: 'prompt_file: null forces file mode', args: { agent_role: 'architect', prompt: 'test', prompt_file: null, output_file: '/tmp/o.md' }, expectError: true, expectMsg: 'Either' },
+  { name: 'prompt_file: undefined allows inline', args: { agent_role: 'architect', prompt: 'test', prompt_file: undefined }, expectError: false },
+  { name: 'background + inline rejected', args: { agent_role: 'architect', prompt: 'test', background: true }, expectError: true, expectMsg: 'foreground' },
+  { name: 'missing output_file in file mode', args: { agent_role: 'architect', prompt_file: '/tmp/f.md' }, expectError: true, expectMsg: 'output_file' },
+  { name: 'non-string output_file', args: { agent_role: 'architect', prompt_file: '/tmp/f.md', output_file: 123 }, expectError: true, expectMsg: 'output_file' },
+];
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  vi.mocked(spawn).mockImplementation(() => createMockChildProcess('{"type":"item.completed","item":{"type":"agent_message","text":"mock success"}}\n', 0));
+});
+
+describe('Codex/Gemini parity matrix', () => {
+  for (const tc of parityMatrix) {
+    it(`parity: ${tc.name}`, async () => {
+      const codexArgs = { ...tc.args, agent_role: 'architect' };
+      const geminiArgs = { ...tc.args, agent_role: 'designer' };
+      const codexResult = await handleAskCodex(codexArgs as any);
+      const geminiResult = await handleAskGemini(geminiArgs as any);
+
+      expect(!!codexResult.isError).toBe(!!geminiResult.isError);
+      expect(codexResult.content.length).toBe(geminiResult.content.length);
+      expect(!!codexResult.isError).toBe(tc.expectError);
+      expect(!!geminiResult.isError).toBe(tc.expectError);
+
+      if (tc.expectError) {
+        expect(codexResult.isError).toBe(true);
+        expect(geminiResult.isError).toBe(true);
+        expect(codexResult.content).toHaveLength(1);
+        expect(geminiResult.content).toHaveLength(1);
+        if (tc.expectMsg) {
+          expect(codexResult.content[0].text.toLowerCase()).toContain(tc.expectMsg.toLowerCase());
+          expect(geminiResult.content[0].text.toLowerCase()).toContain(tc.expectMsg.toLowerCase());
+        }
+      }
+    });
+  }
+});
 
 describe('Inline prompt integration - Codex', () => {
   it('should auto-persist inline prompt to file and not reject it', async () => {

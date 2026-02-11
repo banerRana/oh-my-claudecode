@@ -15,7 +15,7 @@ import { createStdoutCollector, safeWriteOutputFile } from './shared-exec.js';
 import { detectCodexCli } from './cli-detection.js';
 import { getWorktreeRoot } from '../lib/worktree-paths.js';
 import { isExternalPromptAllowed } from './mcp-config.js';
-import { resolveSystemPrompt, buildPromptWithSystemContext, wrapUntrustedFileContent, wrapUntrustedCliResponse, isValidAgentRoleName, VALID_AGENT_ROLES, singleErrorBlock } from './prompt-injection.js';
+import { resolveSystemPrompt, buildPromptWithSystemContext, wrapUntrustedFileContent, wrapUntrustedCliResponse, isValidAgentRoleName, VALID_AGENT_ROLES, singleErrorBlock, inlineSuccessBlocks } from './prompt-injection.js';
 import { persistPrompt, persistResponse, getExpectedResponsePath, getPromptsDir, slugify, generatePromptId } from './prompt-persistence.js';
 import { writeJobStatus, getStatusFilePath, readJobStatus } from './prompt-persistence.js';
 import type { JobStatus, BackgroundJobMeta } from './prompt-persistence.js';
@@ -573,6 +573,10 @@ export async function handleAskCodex(args: {
   background?: boolean;
   working_directory?: string;
 }): Promise<{ content: Array<{ type: 'text'; text: string }>; isError?: boolean }> {
+  if (!args || typeof args !== 'object') {
+    return singleErrorBlock('Invalid request: args must be an object.');
+  }
+
   const { agent_role, context_files } = args;
 
   // Resolve model based on configuration and agent role
@@ -879,12 +883,9 @@ ${resolvedPrompt}`;
     // In inline mode, return metadata + raw response as separate content blocks
     if (isInlineMode) {
       responseLines.push(`**Request ID:** ${inlineRequestId}`);
-      return {
-        content: [
-          { type: 'text' as const, text: responseLines.join('\n') },
-          { type: 'text' as const, text: wrapUntrustedCliResponse(response, { source: 'inline-cli-response', tool: 'ask_codex' }) },
-        ]
-      };
+      const metadataText = responseLines.join('\n');
+      const wrappedResponse = wrapUntrustedCliResponse(response, { source: 'inline-cli-response', tool: 'ask_codex' });
+      return inlineSuccessBlocks(metadataText, wrappedResponse);
     }
 
     return {
