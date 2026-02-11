@@ -9,15 +9,15 @@
  *   import { notify } from '../notifications/index.js';
  *   await notify('session-start', { sessionId, projectPath, ... });
  */
-export { dispatchNotifications, sendDiscord, sendDiscordBot, sendTelegram, sendSlack, sendWebhook } from './dispatcher.js';
-export { formatNotification, formatSessionStart, formatSessionStop, formatSessionEnd, formatAskUserQuestion } from './formatter.js';
-export { getCurrentTmuxSession, getTeamTmuxSessions, formatTmuxInfo } from './tmux.js';
-export { getNotificationConfig, isEventEnabled, getEnabledPlatforms } from './config.js';
-import { getNotificationConfig, isEventEnabled } from './config.js';
-import { formatNotification } from './formatter.js';
-import { dispatchNotifications } from './dispatcher.js';
-import { getCurrentTmuxSession } from './tmux.js';
-import { basename } from 'path';
+export { dispatchNotifications, sendDiscord, sendDiscordBot, sendTelegram, sendSlack, sendWebhook, } from "./dispatcher.js";
+export { formatNotification, formatSessionStart, formatSessionStop, formatSessionEnd, formatAskUserQuestion, } from "./formatter.js";
+export { getCurrentTmuxSession, getTeamTmuxSessions, formatTmuxInfo, } from "./tmux.js";
+export { getNotificationConfig, isEventEnabled, getEnabledPlatforms, } from "./config.js";
+import { getNotificationConfig, isEventEnabled } from "./config.js";
+import { formatNotification } from "./formatter.js";
+import { dispatchNotifications } from "./dispatcher.js";
+import { getCurrentTmuxSession } from "./tmux.js";
+import { basename } from "path";
 /**
  * High-level notification function.
  *
@@ -38,11 +38,12 @@ export async function notify(event, data) {
         const payload = {
             event,
             sessionId: data.sessionId,
-            message: '', // Will be formatted below
+            message: "", // Will be formatted below
             timestamp: data.timestamp || new Date().toISOString(),
             tmuxSession: data.tmuxSession ?? getCurrentTmuxSession() ?? undefined,
             projectPath: data.projectPath,
-            projectName: data.projectName || (data.projectPath ? basename(data.projectPath) : undefined),
+            projectName: data.projectName ||
+                (data.projectPath ? basename(data.projectPath) : undefined),
             modesUsed: data.modesUsed,
             contextSummary: data.contextSummary,
             durationMs: data.durationMs,
@@ -62,7 +63,7 @@ export async function notify(event, data) {
     }
     catch (error) {
         // Never let notification failures propagate to hooks
-        console.error('[notifications] Error:', error instanceof Error ? error.message : error);
+        console.error("[notifications] Error:", error instanceof Error ? error.message : error);
         return null;
     }
 }

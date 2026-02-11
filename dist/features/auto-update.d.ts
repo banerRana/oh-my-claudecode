@@ -16,7 +16,7 @@ export declare const REPO_OWNER = "Yeachan-Heo";
 export declare const REPO_NAME = "oh-my-claudecode";
 export declare const GITHUB_API_URL = "https://api.github.com/repos/Yeachan-Heo/oh-my-claudecode";
 export declare const GITHUB_RAW_URL = "https://raw.githubusercontent.com/Yeachan-Heo/oh-my-claudecode";
-/** Installation paths */
+/** Installation paths (respects CLAUDE_CONFIG_DIR env var) */
 export declare const CLAUDE_CONFIG_DIR: string;
 export declare const VERSION_FILE: string;
 export declare const CONFIG_FILE: string;

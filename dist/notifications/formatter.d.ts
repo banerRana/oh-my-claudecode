@@ -4,7 +4,7 @@
  * Produces human-readable notification messages for each event type.
  * Supports markdown (Discord/Telegram) and plain text (Slack/webhook) formats.
  */
-import type { NotificationPayload } from './types.js';
+import type { NotificationPayload } from "./types.js";
 /**
  * Format session-start notification message.
  */

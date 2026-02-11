@@ -23,19 +23,44 @@ export type {
   SlackNotificationConfig,
   WebhookNotificationConfig,
   EventNotificationConfig,
-} from './types.js';
+} from "./types.js";
 
-export { dispatchNotifications, sendDiscord, sendDiscordBot, sendTelegram, sendSlack, sendWebhook } from './dispatcher.js';
-export { formatNotification, formatSessionStart, formatSessionStop, formatSessionEnd, formatAskUserQuestion } from './formatter.js';
-export { getCurrentTmuxSession, getTeamTmuxSessions, formatTmuxInfo } from './tmux.js';
-export { getNotificationConfig, isEventEnabled, getEnabledPlatforms } from './config.js';
+export {
+  dispatchNotifications,
+  sendDiscord,
+  sendDiscordBot,
+  sendTelegram,
+  sendSlack,
+  sendWebhook,
+} from "./dispatcher.js";
+export {
+  formatNotification,
+  formatSessionStart,
+  formatSessionStop,
+  formatSessionEnd,
+  formatAskUserQuestion,
+} from "./formatter.js";
+export {
+  getCurrentTmuxSession,
+  getTeamTmuxSessions,
+  formatTmuxInfo,
+} from "./tmux.js";
+export {
+  getNotificationConfig,
+  isEventEnabled,
+  getEnabledPlatforms,
+} from "./config.js";
 
-import type { NotificationEvent, NotificationPayload, DispatchResult } from './types.js';
-import { getNotificationConfig, isEventEnabled } from './config.js';
-import { formatNotification } from './formatter.js';
-import { dispatchNotifications } from './dispatcher.js';
-import { getCurrentTmuxSession } from './tmux.js';
-import { basename } from 'path';
+import type {
+  NotificationEvent,
+  NotificationPayload,
+  DispatchResult,
+} from "./types.js";
+import { getNotificationConfig, isEventEnabled } from "./config.js";
+import { formatNotification } from "./formatter.js";
+import { dispatchNotifications } from "./dispatcher.js";
+import { getCurrentTmuxSession } from "./tmux.js";
+import { basename } from "path";
 
 /**
  * High-level notification function.
@@ -49,7 +74,7 @@ import { basename } from 'path';
  */
 export async function notify(
   event: NotificationEvent,
-  data: Partial<NotificationPayload> & { sessionId: string }
+  data: Partial<NotificationPayload> & { sessionId: string },
 ): Promise<DispatchResult | null> {
   try {
     const config = getNotificationConfig();
@@ -61,11 +86,13 @@ export async function notify(
     const payload: NotificationPayload = {
       event,
       sessionId: data.sessionId,
-      message: '', // Will be formatted below
+      message: "", // Will be formatted below
       timestamp: data.timestamp || new Date().toISOString(),
       tmuxSession: data.tmuxSession ?? getCurrentTmuxSession() ?? undefined,
       projectPath: data.projectPath,
-      projectName: data.projectName || (data.projectPath ? basename(data.projectPath) : undefined),
+      projectName:
+        data.projectName ||
+        (data.projectPath ? basename(data.projectPath) : undefined),
       modesUsed: data.modesUsed,
       contextSummary: data.contextSummary,
       durationMs: data.durationMs,
@@ -86,7 +113,10 @@ export async function notify(
     return await dispatchNotifications(config, event, payload);
   } catch (error) {
     // Never let notification failures propagate to hooks
-    console.error('[notifications] Error:', error instanceof Error ? error.message : error);
+    console.error(
+      "[notifications] Error:",
+      error instanceof Error ? error.message : error,
+    );
     return null;
   }
 }

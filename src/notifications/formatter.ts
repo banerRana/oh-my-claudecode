@@ -5,14 +5,14 @@
  * Supports markdown (Discord/Telegram) and plain text (Slack/webhook) formats.
  */
 
-import type { NotificationPayload } from './types.js';
-import { basename } from 'path';
+import type { NotificationPayload } from "./types.js";
+import { basename } from "path";
 
 /**
  * Format duration from milliseconds to human-readable string.
  */
 function formatDuration(ms?: number): string {
-  if (!ms) return 'unknown';
+  if (!ms) return "unknown";
   const seconds = Math.floor(ms / 1000);
   const minutes = Math.floor(seconds / 60);
   const hours = Math.floor(minutes / 60);
@@ -32,7 +32,7 @@ function formatDuration(ms?: number): string {
 function projectDisplay(payload: NotificationPayload): string {
   if (payload.projectName) return payload.projectName;
   if (payload.projectPath) return basename(payload.projectPath);
-  return 'unknown';
+  return "unknown";
 }
 
 /**
@@ -42,12 +42,20 @@ function buildFooter(payload: NotificationPayload, markdown: boolean): string {
   const parts: string[] = [];
 
   if (payload.tmuxSession) {
-    parts.push(markdown ? `**tmux:** \`${payload.tmuxSession}\`` : `tmux: ${payload.tmuxSession}`);
+    parts.push(
+      markdown
+        ? `**tmux:** \`${payload.tmuxSession}\``
+        : `tmux: ${payload.tmuxSession}`,
+    );
   }
 
-  parts.push(markdown ? `**project:** \`${projectDisplay(payload)}\`` : `project: ${projectDisplay(payload)}`);
+  parts.push(
+    markdown
+      ? `**project:** \`${projectDisplay(payload)}\``
+      : `project: ${projectDisplay(payload)}`,
+  );
 
-  return parts.join(markdown ? ' | ' : ' | ');
+  return parts.join(markdown ? " | " : " | ");
 }
 
 /**
@@ -59,7 +67,7 @@ export function formatSessionStart(payload: NotificationPayload): string {
 
   const lines = [
     `# Session Started`,
-    '',
+    "",
     `**Session:** \`${payload.sessionId}\``,
     `**Project:** \`${project}\``,
     `**Time:** ${time}`,
@@ -69,7 +77,7 @@ export function formatSessionStart(payload: NotificationPayload): string {
     lines.push(`**tmux:** \`${payload.tmuxSession}\``);
   }
 
-  return lines.join('\n');
+  return lines.join("\n");
 }
 
 /**
@@ -77,10 +85,7 @@ export function formatSessionStart(payload: NotificationPayload): string {
  * Sent when persistent mode blocks a stop (mode is still active).
  */
 export function formatSessionStop(payload: NotificationPayload): string {
-  const lines = [
-    `# Session Continuing`,
-    '',
-  ];
+  const lines = [`# Session Continuing`, ""];
 
   if (payload.activeMode) {
     lines.push(`**Mode:** ${payload.activeMode}`);
@@ -94,10 +99,10 @@ export function formatSessionStop(payload: NotificationPayload): string {
     lines.push(`**Incomplete tasks:** ${payload.incompleteTasks}`);
   }
 
-  lines.push('');
+  lines.push("");
   lines.push(buildFooter(payload, true));
 
-  return lines.join('\n');
+  return lines.join("\n");
 }
 
 /**
@@ -109,28 +114,30 @@ export function formatSessionEnd(payload: NotificationPayload): string {
 
   const lines = [
     `# Session Ended`,
-    '',
+    "",
     `**Session:** \`${payload.sessionId}\``,
     `**Duration:** ${duration}`,
-    `**Reason:** ${payload.reason || 'unknown'}`,
+    `**Reason:** ${payload.reason || "unknown"}`,
   ];
 
   if (payload.agentsSpawned != null) {
-    lines.push(`**Agents:** ${payload.agentsCompleted ?? 0}/${payload.agentsSpawned} completed`);
+    lines.push(
+      `**Agents:** ${payload.agentsCompleted ?? 0}/${payload.agentsSpawned} completed`,
+    );
   }
 
   if (payload.modesUsed && payload.modesUsed.length > 0) {
-    lines.push(`**Modes:** ${payload.modesUsed.join(', ')}`);
+    lines.push(`**Modes:** ${payload.modesUsed.join(", ")}`);
   }
 
   if (payload.contextSummary) {
-    lines.push('', `**Summary:** ${payload.contextSummary}`);
+    lines.push("", `**Summary:** ${payload.contextSummary}`);
   }
 
-  lines.push('');
+  lines.push("");
   lines.push(buildFooter(payload, true));
 
-  return lines.join('\n');
+  return lines.join("\n");
 }
 
 /**
@@ -138,21 +145,18 @@ export function formatSessionEnd(payload: NotificationPayload): string {
  * Notifies the user that Claude is waiting for input.
  */
 export function formatAskUserQuestion(payload: NotificationPayload): string {
-  const lines = [
-    `# Input Needed`,
-    '',
-  ];
+  const lines = [`# Input Needed`, ""];
 
   if (payload.question) {
     lines.push(`**Question:** ${payload.question}`);
-    lines.push('');
+    lines.push("");
   }
 
   lines.push(`Claude is waiting for your response.`);
-  lines.push('');
+  lines.push("");
   lines.push(buildFooter(payload, true));
 
-  return lines.join('\n');
+  return lines.join("\n");
 }
 
 /**
@@ -161,13 +165,13 @@ export function formatAskUserQuestion(payload: NotificationPayload): string {
  */
 export function formatNotification(payload: NotificationPayload): string {
   switch (payload.event) {
-    case 'session-start':
+    case "session-start":
       return formatSessionStart(payload);
-    case 'session-stop':
+    case "session-stop":
       return formatSessionStop(payload);
-    case 'session-end':
+    case "session-end":
       return formatSessionEnd(payload);
-    case 'ask-user-question':
+    case "ask-user-question":
       return formatAskUserQuestion(payload);
     default:
       return payload.message || `Event: ${payload.event}`;

@@ -5,14 +5,14 @@
  * All sends are non-blocking with timeouts. Failures are swallowed to avoid
  * blocking hooks.
  */
-import type { DiscordNotificationConfig, DiscordBotNotificationConfig, TelegramNotificationConfig, SlackNotificationConfig, WebhookNotificationConfig, NotificationPayload, NotificationResult, DispatchResult, NotificationConfig, NotificationEvent } from './types.js';
+import type { DiscordNotificationConfig, DiscordBotNotificationConfig, TelegramNotificationConfig, SlackNotificationConfig, WebhookNotificationConfig, NotificationPayload, NotificationResult, DispatchResult, NotificationConfig, NotificationEvent } from "./types.js";
 /**
  * Send notification via Discord webhook.
  */
 export declare function sendDiscord(config: DiscordNotificationConfig, payload: NotificationPayload): Promise<NotificationResult>;
 /**
  * Send notification via Discord Bot API (token + channel ID).
- * Falls back to env vars: OMC_DISCORD_NOTIFIER_BOT_TOKEN, OMC_DISCORD_NOTIFIER_CHANNEL
+ * Bot token and channel ID should be resolved in config layer.
  */
 export declare function sendDiscordBot(config: DiscordBotNotificationConfig, payload: NotificationPayload): Promise<NotificationResult>;
 /**

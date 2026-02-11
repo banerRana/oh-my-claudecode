@@ -51,7 +51,7 @@ function syncMarketplaceClone(verbose = false) {
     }
     return { ok: true, message: 'Marketplace clone updated' };
 }
-/** Installation paths */
+/** Installation paths (respects CLAUDE_CONFIG_DIR env var) */
 export const CLAUDE_CONFIG_DIR = getConfigDir();
 export const VERSION_FILE = join(CLAUDE_CONFIG_DIR, '.omc-version.json');
 export const CONFIG_FILE = join(CLAUDE_CONFIG_DIR, '.omc-config.json');

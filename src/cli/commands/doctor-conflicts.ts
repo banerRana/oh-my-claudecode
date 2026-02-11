@@ -8,7 +8,6 @@ import { join } from 'path';
 import { getClaudeConfigDir } from '../../utils/paths.js';
 import type { PluginConfig } from '../../shared/types.js';
 import { colors } from '../utils/formatting.js';
-import { getClaudeConfigDir } from '../../utils/paths.js';
 
 export interface ConflictReport {
   hookConflicts: { event: string; command: string; isOmc: boolean }[];

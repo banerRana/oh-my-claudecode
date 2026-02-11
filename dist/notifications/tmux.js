@@ -3,7 +3,7 @@
  *
  * Detects the current tmux session name for inclusion in notification payloads.
  */
-import { execSync } from 'child_process';
+import { execSync } from "child_process";
 /**
  * Get the current tmux session name.
  * Returns null if not running inside tmux.
@@ -15,9 +15,9 @@ export function getCurrentTmuxSession() {
     }
     try {
         const sessionName = execSync("tmux display-message -p '#S'", {
-            encoding: 'utf-8',
+            encoding: "utf-8",
             timeout: 3000,
-            stdio: ['pipe', 'pipe', 'pipe'],
+            stdio: ["pipe", "pipe", "pipe"],
         }).trim();
         return sessionName || null;
     }
@@ -29,21 +29,21 @@ export function getCurrentTmuxSession() {
  * List active omc-team tmux sessions for a given team.
  */
 export function getTeamTmuxSessions(teamName) {
-    const sanitized = teamName.replace(/[^a-zA-Z0-9-]/g, '');
+    const sanitized = teamName.replace(/[^a-zA-Z0-9-]/g, "");
     if (!sanitized)
         return [];
     const prefix = `omc-team-${sanitized}-`;
     try {
         const output = execSync("tmux list-sessions -F '#{session_name}'", {
-            encoding: 'utf-8',
+            encoding: "utf-8",
             timeout: 3000,
-            stdio: ['pipe', 'pipe', 'pipe'],
+            stdio: ["pipe", "pipe", "pipe"],
         });
         return output
             .trim()
-            .split('\n')
-            .filter(s => s.startsWith(prefix))
-            .map(s => s.slice(prefix.length));
+            .split("\n")
+            .filter((s) => s.startsWith(prefix))
+            .map((s) => s.slice(prefix.length));
     }
     catch {
         return [];

@@ -8,13 +8,18 @@
 
 /** Events that can trigger notifications */
 export type NotificationEvent =
-  | 'session-start'
-  | 'session-stop'
-  | 'session-end'
-  | 'ask-user-question';
+  | "session-start"
+  | "session-stop"
+  | "session-end"
+  | "ask-user-question";
 
 /** Supported notification platforms */
-export type NotificationPlatform = 'discord' | 'discord-bot' | 'telegram' | 'slack' | 'webhook';
+export type NotificationPlatform =
+  | "discord"
+  | "discord-bot"
+  | "telegram"
+  | "slack"
+  | "webhook";
 
 /** Discord webhook configuration */
 export interface DiscordNotificationConfig {
@@ -23,6 +28,8 @@ export interface DiscordNotificationConfig {
   webhookUrl: string;
   /** Optional username override for the webhook bot */
   username?: string;
+  /** Optional mention to prepend to messages (e.g. "<@123456>" for user, "<@&789>" for role) */
+  mention?: string;
 }
 
 /** Discord Bot API configuration (bot token + channel ID) */
@@ -32,6 +39,8 @@ export interface DiscordBotNotificationConfig {
   botToken?: string;
   /** Channel ID to send messages to (or env var: OMC_DISCORD_NOTIFIER_CHANNEL) */
   channelId?: string;
+  /** Optional mention to prepend to messages (e.g. "<@123456>" for user, "<@&789>" for role) */
+  mention?: string;
 }
 
 /** Telegram platform configuration */
@@ -42,7 +51,7 @@ export interface TelegramNotificationConfig {
   /** Chat ID to send messages to */
   chatId: string;
   /** Parse mode: Markdown or HTML (default: Markdown) */
-  parseMode?: 'Markdown' | 'HTML';
+  parseMode?: "Markdown" | "HTML";
 }
 
 /** Slack platform configuration */
@@ -64,7 +73,7 @@ export interface WebhookNotificationConfig {
   /** Optional custom headers */
   headers?: Record<string, string>;
   /** Optional HTTP method override (default: POST) */
-  method?: 'POST' | 'PUT';
+  method?: "POST" | "PUT";
 }
 
 /** Platform config union */
@@ -83,7 +92,7 @@ export interface EventNotificationConfig {
   messageTemplate?: string;
   /** Platform overrides for this event (inherits from top-level if not set) */
   discord?: DiscordNotificationConfig;
-  'discord-bot'?: DiscordBotNotificationConfig;
+  "discord-bot"?: DiscordBotNotificationConfig;
   telegram?: TelegramNotificationConfig;
   slack?: SlackNotificationConfig;
   webhook?: WebhookNotificationConfig;
@@ -96,17 +105,17 @@ export interface NotificationConfig {
 
   /** Default platform configs (used when event-specific config is not set) */
   discord?: DiscordNotificationConfig;
-  'discord-bot'?: DiscordBotNotificationConfig;
+  "discord-bot"?: DiscordBotNotificationConfig;
   telegram?: TelegramNotificationConfig;
   slack?: SlackNotificationConfig;
   webhook?: WebhookNotificationConfig;
 
   /** Per-event configuration */
   events?: {
-    'session-start'?: EventNotificationConfig;
-    'session-stop'?: EventNotificationConfig;
-    'session-end'?: EventNotificationConfig;
-    'ask-user-question'?: EventNotificationConfig;
+    "session-start"?: EventNotificationConfig;
+    "session-stop"?: EventNotificationConfig;
+    "session-end"?: EventNotificationConfig;
+    "ask-user-question"?: EventNotificationConfig;
   };
 }
 

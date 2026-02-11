@@ -433,6 +433,13 @@ By default, both files must reside within the `working_directory`:
 | `OMC_MCP_OUTPUT_REDIRECT_DIR` | Path (default: `.omc/outputs`) | Directory for redirected outputs when policy is `redirect_output` |
 | `OMC_MCP_ALLOW_EXTERNAL_PROMPT` | `0` (default), `1` | Allow prompt files outside working directory |
 | `OMC_ALLOW_EXTERNAL_WORKDIR` | unset (default), `1` | Allow working_directory outside project worktree |
+| `OMC_DISCORD_WEBHOOK_URL` | URL | Discord webhook URL for notifications |
+| `OMC_DISCORD_NOTIFIER_BOT_TOKEN` | Token | Discord bot token for Bot API notifications |
+| `OMC_DISCORD_NOTIFIER_CHANNEL` | Channel ID | Discord channel ID for Bot API notifications |
+| `OMC_DISCORD_MENTION` | `<@uid>` or `<@&role_id>` | Mention to prepend to Discord messages |
+| `OMC_TELEGRAM_BOT_TOKEN` | Token | Telegram bot token for notifications |
+| `OMC_TELEGRAM_CHAT_ID` | Chat ID | Telegram chat ID for notifications |
+| `OMC_SLACK_WEBHOOK_URL` | URL | Slack incoming webhook URL for notifications |
 
 ### Policy Descriptions
 

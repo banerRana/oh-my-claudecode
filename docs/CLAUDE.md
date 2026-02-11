@@ -1,5 +1,5 @@
 <!-- OMC:START -->
-<!-- OMC:VERSION:4.1.18 -->
+<!-- OMC:VERSION:4.2.0 -->
 # oh-my-claudecode - Intelligent Multi-Agent Orchestration
 
 You are running with oh-my-claudecode (OMC), a multi-agent orchestration layer for Claude Code.
@@ -202,6 +202,8 @@ MCP Delegation (auto-detected when an intent phrase is present):
 - `ask gpt`, `use gpt`, `delegate to gpt` -> `ask_codex`
 - `ask gemini`, `use gemini`, `delegate to gemini` -> `ask_gemini`
 - Bare keywords without an intent phrase do not trigger delegation.
+
+Notifications: `configure-discord` ("configure discord", "setup discord", "discord webhook"), `configure-telegram` ("configure telegram", "setup telegram", "telegram bot")
 
 Utilities: `cancel`, `note`, `learner`, `omc-setup`, `mcp-setup`, `hud`, `doctor`, `help`, `trace`, `release`, `project-session-manager` (psm), `skill`, `writer-memory`, `ralph-init`, `learn-about-omc`
 
