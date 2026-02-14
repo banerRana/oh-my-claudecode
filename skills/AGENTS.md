@@ -52,7 +52,7 @@ Skills are reusable workflow templates that can be invoked via `/oh-my-claudecod
 |-----------|-------|---------|
 | `deepsearch/SKILL.md` | deepsearch | Thorough codebase search |
 | `deepinit/SKILL.md` | deepinit | Generate hierarchical AGENTS.md |
-| `research/SKILL.md` | research | Parallel scientist orchestration |
+| `sciomc/SKILL.md` | sciomc | Parallel scientist orchestration |
 
 ### Utility Skills
 
@@ -67,7 +67,6 @@ Skills are reusable workflow templates that can be invoked via `/oh-my-claudecod
 | `omc-setup/SKILL.md` | omc-setup | One-time setup wizard |
 | `mcp-setup/SKILL.md` | mcp-setup | Configure MCP servers |
 | `help/SKILL.md` | help | Usage guide |
-| `learn-about-omc/SKILL.md` | learn-about-omc | Usage pattern analysis |
 | `skill/SKILL.md` | skill | Manage local skills |
 
 ### Domain Skills
@@ -79,7 +78,6 @@ Skills are reusable workflow templates that can be invoked via `/oh-my-claudecod
 | `project-session-manager/SKILL.md` | psm | Isolated dev environments |
 | `writer-memory/SKILL.md` | writer-memory | Agentic memory for writers |
 | `release/SKILL.md` | release | Automated release workflow |
-| `local-skills-setup/SKILL.md` | local-skills-setup | Manage local skills |
 
 ## For AI Agents
 

@@ -56,8 +56,9 @@ describe('Type Tests', () => {
       const config: PluginConfig = {
         agents: {
           omc: { model: 'claude-sonnet-4-5' },
-          architect: { model: 'claude-opus-4-5', enabled: true },
+          architect: { model: 'claude-opus-4-6', enabled: true },
           researcher: { model: 'claude-haiku-4-5' },
+          'document-specialist': { model: 'claude-haiku-4-5' },
         },
       };
 
@@ -75,14 +76,14 @@ describe('Type Tests', () => {
           tierModels: {
             LOW: 'claude-haiku-4',
             MEDIUM: 'claude-sonnet-4-5',
-            HIGH: 'claude-opus-4-5',
+            HIGH: 'claude-opus-4-6',
           },
         },
       };
 
       expect(config.routing?.enabled).toBe(true);
       expect(config.routing?.defaultTier).toBe('MEDIUM');
-      expect(config.routing?.tierModels?.HIGH).toBe('claude-opus-4-5');
+      expect(config.routing?.tierModels?.HIGH).toBe('claude-opus-4-6');
     });
   });
 });

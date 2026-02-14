@@ -6,21 +6,41 @@
  * Receives stdin JSON from Claude Code and outputs formatted statusline.
  */
 
-import { readStdin, getContextPercent, getModelName } from './stdin.js';
-import { parseTranscript } from './transcript.js';
-import { readHudState, readHudConfig, getRunningTasks, initializeHUDState } from './state.js';
+import { readStdin, getContextPercent, getModelName } from "./stdin.js";
+import { parseTranscript } from "./transcript.js";
+import {
+  readHudState,
+  readHudConfig,
+  getRunningTasks,
+  writeHudState,
+  initializeHUDState,
+} from "./state.js";
 import {
   readRalphStateForHud,
   readUltraworkStateForHud,
   readPrdStateForHud,
   readAutopilotStateForHud,
-} from './omc-state.js';
-import { getUsage } from './usage-api.js';
-import { render } from './render.js';
-import type { HudRenderContext, SessionHealth, StatuslineStdin } from './types.js';
-import { extractTokens, createSnapshot, type TokenSnapshot } from '../analytics/token-extractor.js';
-import { extractSessionId } from '../analytics/output-estimator.js';
-import { getTokenTracker } from '../analytics/token-tracker.js';
+} from "./omc-state.js";
+import { getUsage } from "./usage-api.js";
+import { render } from "./render.js";
+import { sanitizeOutput } from "./sanitize.js";
+import type {
+  HudRenderContext,
+  SessionHealth,
+  StatuslineStdin,
+} from "./types.js";
+import {
+  extractTokens,
+  createSnapshot,
+  type TokenSnapshot,
+} from "../analytics/token-extractor.js";
+import { extractSessionId } from "../analytics/output-estimator.js";
+import { getTokenTracker } from "../analytics/token-tracker.js";
+import { getRuntimePackageVersion } from "../lib/version.js";
+import { compareVersions } from "../features/auto-update.js";
+import { existsSync, readFileSync } from "fs";
+import { join } from "path";
+import { homedir } from "os";
 
 // Persistent token snapshot for delta calculations
 let previousSnapshot: TokenSnapshot | null = null;
@@ -31,43 +51,55 @@ let previousSnapshot: TokenSnapshot | null = null;
  */
 async function recordTokenUsage(
   stdin: any,
-  transcriptData: any
+  transcriptData: any,
 ): Promise<void> {
   try {
     // Debug: Log stdin.context_window data
     if (process.env.OMC_DEBUG) {
-      console.error('[TokenRecording] stdin.context_window:', JSON.stringify(stdin.context_window));
+      console.error(
+        "[TokenRecording] stdin.context_window:",
+        JSON.stringify(stdin.context_window),
+      );
     }
 
     // Get model name from stdin
     const modelName = getModelName(stdin);
 
     // Get running agents from transcript
-    const runningAgents = transcriptData.agents?.filter((a: any) => a.status === 'running') ?? [];
-    const agentName = runningAgents.length > 0 ? runningAgents[0].name : undefined;
+    const runningAgents =
+      transcriptData.agents?.filter((a: any) => a.status === "running") ?? [];
+    const agentName =
+      runningAgents.length > 0 ? runningAgents[0].name : undefined;
 
     if (process.env.OMC_DEBUG) {
-      console.error('[TokenRecording] agentName determined:', agentName);
+      console.error("[TokenRecording] agentName determined:", agentName);
     }
 
     // Extract tokens (delta from previous)
-    const extracted = extractTokens(stdin, previousSnapshot, modelName, agentName);
+    const extracted = extractTokens(
+      stdin,
+      previousSnapshot,
+      modelName,
+      agentName,
+    );
 
     if (process.env.OMC_DEBUG) {
-      console.error('[TokenRecording] extracted tokens:', {
+      console.error("[TokenRecording] extracted tokens:", {
         inputTokens: extracted.inputTokens,
         outputTokens: extracted.outputTokens,
         cacheCreationTokens: extracted.cacheCreationTokens,
         cacheReadTokens: extracted.cacheReadTokens,
         agentName: extracted.agentName,
-        modelName: extracted.modelName
+        modelName: extracted.modelName,
       });
     }
 
     // Only record if there's actual token usage
     if (extracted.inputTokens > 0 || extracted.cacheCreationTokens > 0) {
       if (process.env.OMC_DEBUG) {
-        console.error('[TokenRecording] Recording condition PASSED - recording usage');
+        console.error(
+          "[TokenRecording] Recording condition PASSED - recording usage",
+        );
       }
 
       // Get session ID
@@ -81,15 +113,20 @@ async function recordTokenUsage(
         inputTokens: extracted.inputTokens,
         outputTokens: extracted.outputTokens,
         cacheCreationTokens: extracted.cacheCreationTokens,
-        cacheReadTokens: extracted.cacheReadTokens
+        cacheReadTokens: extracted.cacheReadTokens,
       });
 
       if (process.env.OMC_DEBUG) {
-        console.error('[TokenRecording] Successfully recorded usage for agent:', extracted.agentName);
+        console.error(
+          "[TokenRecording] Successfully recorded usage for agent:",
+          extracted.agentName,
+        );
       }
     } else {
       if (process.env.OMC_DEBUG) {
-        console.error('[TokenRecording] Recording condition FAILED - no token delta detected');
+        console.error(
+          "[TokenRecording] Recording condition FAILED - no token delta detected",
+        );
       }
     }
 
@@ -98,7 +135,7 @@ async function recordTokenUsage(
   } catch (error) {
     // Silent failure - don't break HUD rendering
     if (process.env.OMC_DEBUG) {
-      console.error('[Analytics] Token recording failed:', error);
+      console.error("[Analytics] Token recording failed:", error);
     }
   }
 }
@@ -117,8 +154,13 @@ async function recordTokenUsage(
  */
 async function getTokenTrackerFallback(
   sessionId: string,
-  durationMs: number
-): Promise<{ sessionCost: number; totalTokens: number; cacheHitRate: number; costPerHour: number } | null> {
+  durationMs: number,
+): Promise<{
+  sessionCost: number;
+  totalTokens: number;
+  cacheHitRate: number;
+  costPerHour: number;
+} | null> {
   const tracker = getTokenTracker(sessionId);
   const stats = tracker.getSessionStats();
 
@@ -126,7 +168,7 @@ async function getTokenTrackerFallback(
     return null;
   }
 
-  const { calculateCost } = await import('../analytics/cost-estimator.js');
+  const { calculateCost } = await import("../analytics/cost-estimator.js");
 
   let cost = 0;
   for (const [model, usages] of Object.entries(stats.byModel)) {
@@ -136,15 +178,16 @@ async function getTokenTrackerFallback(
         inputTokens: usage.inputTokens,
         outputTokens: usage.outputTokens,
         cacheCreationTokens: usage.cacheCreationTokens,
-        cacheReadTokens: usage.cacheReadTokens
+        cacheReadTokens: usage.cacheReadTokens,
       });
       cost += c.totalCost;
     }
   }
 
   const totalTokens = stats.totalInputTokens + stats.totalOutputTokens;
-  const totalInput = stats.totalInputTokens + stats.totalCacheCreation;
-  const cacheHitRate = totalInput > 0 ? (stats.totalCacheRead / totalInput) * 100 : 0;
+  const totalInput = stats.totalInputTokens + stats.totalCacheCreation + stats.totalCacheRead;
+  const cacheHitRate =
+    totalInput > 0 ? (stats.totalCacheRead / totalInput) * 100 : 0;
   const hours = durationMs / (1000 * 60 * 60);
   const costPerHour = hours > 0 ? cost / hours : 0;
 
@@ -158,17 +201,18 @@ async function getTokenTrackerFallback(
 async function calculateSessionHealth(
   sessionStart: Date | undefined,
   contextPercent: number,
-  stdin: StatuslineStdin
+  stdin: StatuslineStdin,
+  thresholds?: { budgetWarning: number; budgetCritical: number },
 ): Promise<SessionHealth | null> {
   // Calculate duration (use 0 if no session start)
   const durationMs = sessionStart ? Date.now() - sessionStart.getTime() : 0;
   const durationMinutes = Math.floor(durationMs / 60_000);
 
-  let health: SessionHealth['health'] = 'healthy';
+  let health: SessionHealth["health"] = "healthy";
   if (durationMinutes > 120 || contextPercent > 85) {
-    health = 'critical';
+    health = "critical";
   } else if (durationMinutes > 60 || contextPercent > 70) {
-    health = 'warning';
+    health = "warning";
   }
 
   // Get LIVE token data from stdin (not from analytics files)
@@ -179,16 +223,21 @@ async function calculateSessionHealth(
 
   // Debug: log token data if OMC_DEBUG is set
   if (process.env.OMC_DEBUG) {
-    console.error('[HUD DEBUG] current_usage:', JSON.stringify(usage));
-    console.error('[HUD DEBUG] tokens:', { inputTokens, cacheCreationTokens, cacheReadTokens });
+    console.error("[HUD DEBUG] current_usage:", JSON.stringify(usage));
+    console.error("[HUD DEBUG] tokens:", {
+      inputTokens,
+      cacheCreationTokens,
+      cacheReadTokens,
+    });
   }
 
   // Calculate totals from live data
   const totalTokens = inputTokens + cacheCreationTokens + cacheReadTokens;
   const totalInputForCache = inputTokens + cacheCreationTokens;
-  const cacheHitRate = totalInputForCache > 0
-    ? (cacheReadTokens / (totalInputForCache + cacheReadTokens)) * 100
-    : 0;
+  const cacheHitRate =
+    totalInputForCache > 0
+      ? (cacheReadTokens / (totalInputForCache + cacheReadTokens)) * 100
+      : 0;
 
   // Estimate output tokens and cost
   let sessionCost = 0;
@@ -196,10 +245,12 @@ async function calculateSessionHealth(
   const isEstimated = true;
 
   try {
-    const { calculateCost } = await import('../analytics/cost-estimator.js');
-    const { estimateOutputTokens } = await import('../analytics/output-estimator.js');
+    const { calculateCost } = await import("../analytics/cost-estimator.js");
+    const { estimateOutputTokens } =
+      await import("../analytics/output-estimator.js");
 
-    const modelName = stdin.model?.id ?? stdin.model?.display_name ?? 'claude-sonnet-4.5';
+    const modelName =
+      stdin.model?.id ?? stdin.model?.display_name ?? "claude-sonnet-4.5";
     const estimatedOutput = estimateOutputTokens(inputTokens, modelName);
 
     const costResult = calculateCost({
@@ -207,7 +258,7 @@ async function calculateSessionHealth(
       inputTokens,
       outputTokens: estimatedOutput,
       cacheCreationTokens,
-      cacheReadTokens
+      cacheReadTokens,
     });
 
     sessionCost = costResult.totalCost;
@@ -217,14 +268,16 @@ async function calculateSessionHealth(
     costPerHour = hours > 0 ? sessionCost / hours : 0;
 
     // Adjust health based on cost (Budget warnings)
-    if (sessionCost > 5.0) {
-      health = 'critical';
-    } else if (sessionCost > 2.0 && health !== 'critical') {
-      health = 'warning';
+    const budgetCritical = thresholds?.budgetCritical ?? 5.0;
+    const budgetWarning = thresholds?.budgetWarning ?? 2.0;
+    if (sessionCost > budgetCritical) {
+      health = "critical";
+    } else if (sessionCost > budgetWarning && health !== "critical") {
+      health = "warning";
     }
   } catch (error) {
     if (process.env.OMC_DEBUG) {
-      console.error('[HUD] Cost calculation failed:', error);
+      console.error("[HUD] Cost calculation failed:", error);
     }
     // Cost calculation failed - continue with zeros
   }
@@ -236,11 +289,11 @@ async function calculateSessionHealth(
     if (sessionId) {
       const tracker = getTokenTracker(sessionId);
       const agents = await tracker.getTopAgents(3);
-      topAgents = agents.map(a => ({ agent: a.agent, cost: a.cost }));
+      topAgents = agents.map((a) => ({ agent: a.agent, cost: a.cost }));
     }
   } catch (error) {
     if (process.env.OMC_DEBUG) {
-      console.error('[HUD] Top agents fetch failed:', error);
+      console.error("[HUD] Top agents fetch failed:", error);
     }
     // Top agents fetch failed - continue with empty
   }
@@ -254,7 +307,7 @@ async function calculateSessionHealth(
     cacheHitRate,
     topAgents,
     costPerHour,
-    isEstimated
+    isEstimated,
   };
 }
 
@@ -271,7 +324,7 @@ async function main(): Promise<void> {
 
     if (!stdin) {
       // No stdin - suggest setup
-      console.log('[OMC] run /omc-setup to install properly');
+      console.log("[OMC] run /omc-setup to install properly");
       return;
     }
 
@@ -298,10 +351,54 @@ async function main(): Promise<void> {
     const hudState = readHudState(cwd);
     const backgroundTasks = hudState?.backgroundTasks || [];
 
+    // Persist session start time to survive tail-parsing resets (#528)
+    // When tail parsing kicks in for large transcripts, sessionStart comes from
+    // the first entry in the tail chunk rather than the actual session start.
+    // We persist the real start time in HUD state on first observation.
+    // Scoped per session ID so a new session in the same cwd resets the timestamp.
+    let sessionStart = transcriptData.sessionStart;
+    const currentSessionId = extractSessionId(stdin.transcript_path);
+    const sameSession = hudState?.sessionId === currentSessionId;
+    if (sameSession && hudState?.sessionStartTimestamp) {
+      // Use persisted value (the real session start) - but validate first
+      const persisted = new Date(hudState.sessionStartTimestamp);
+      if (!isNaN(persisted.getTime())) {
+        sessionStart = persisted;
+      }
+      // If invalid, fall through to transcript-derived sessionStart
+    } else if (sessionStart) {
+      // First time seeing session start (or new session) - persist it
+      const stateToWrite = hudState || { timestamp: new Date().toISOString(), backgroundTasks: [] };
+      stateToWrite.sessionStartTimestamp = sessionStart.toISOString();
+      stateToWrite.sessionId = currentSessionId;
+      stateToWrite.timestamp = new Date().toISOString();
+      writeHudState(stateToWrite, cwd);
+    }
+
     // Fetch rate limits from OAuth API (if available)
-    const rateLimits = config.elements.rateLimits !== false
-      ? await getUsage()
-      : null;
+    const rateLimits =
+      config.elements.rateLimits !== false ? await getUsage() : null;
+
+    // Read OMC version and update check cache
+    let omcVersion: string | null = null;
+    let updateAvailable: string | null = null;
+    try {
+      omcVersion = getRuntimePackageVersion();
+      if (omcVersion === 'unknown') omcVersion = null;
+    } catch {
+      // Ignore version detection errors
+    }
+    try {
+      const updateCacheFile = join(homedir(), '.omc', 'update-check.json');
+      if (existsSync(updateCacheFile)) {
+        const cached = JSON.parse(readFileSync(updateCacheFile, 'utf-8'));
+        if (cached?.latestVersion && omcVersion && compareVersions(omcVersion, cached.latestVersion) < 0) {
+          updateAvailable = cached.latestVersion;
+        }
+      }
+    } catch {
+      // Ignore update cache read errors
+    }
 
     // Build render context
     const context: HudRenderContext = {
@@ -311,7 +408,7 @@ async function main(): Promise<void> {
       ultrawork,
       prd,
       autopilot,
-      activeAgents: transcriptData.agents.filter((a) => a.status === 'running'),
+      activeAgents: transcriptData.agents.filter((a) => a.status === "running"),
       todos: transcriptData.todos,
       backgroundTasks: getRunningTasks(hudState),
       cwd,
@@ -320,27 +417,61 @@ async function main(): Promise<void> {
       pendingPermission: transcriptData.pendingPermission || null,
       thinkingState: transcriptData.thinkingState || null,
       sessionHealth: await calculateSessionHealth(
-        transcriptData.sessionStart,
+        sessionStart,
         getContextPercent(stdin),
-        stdin
-      )
+        stdin,
+        config.thresholds,
+      ),
+      omcVersion,
+      updateAvailable,
     };
 
     // Debug: log data if OMC_DEBUG is set
     if (process.env.OMC_DEBUG) {
-      console.error('[HUD DEBUG] stdin.context_window:', JSON.stringify(stdin.context_window));
-      console.error('[HUD DEBUG] sessionHealth:', JSON.stringify(context.sessionHealth));
+      console.error(
+        "[HUD DEBUG] stdin.context_window:",
+        JSON.stringify(stdin.context_window),
+      );
+      console.error(
+        "[HUD DEBUG] sessionHealth:",
+        JSON.stringify(context.sessionHealth),
+      );
     }
 
     // Render and output
-    const output = await render(context, config);
+    let output = await render(context, config);
 
-    // Replace spaces with non-breaking spaces for terminal alignment
-    const formattedOutput = output.replace(/ /g, '\u00A0');
-    console.log(formattedOutput);
+    // Apply safe mode sanitization if enabled (Issue #346)
+    // This strips ANSI codes and uses ASCII-only output to prevent
+    // terminal rendering corruption during concurrent updates
+    if (config.elements.safeMode) {
+      output = sanitizeOutput(output);
+      // In safe mode, use regular spaces (don't convert to non-breaking)
+      console.log(output);
+    } else {
+      // Replace spaces with non-breaking spaces for terminal alignment
+      const formattedOutput = output.replace(/ /g, "\u00A0");
+      console.log(formattedOutput);
+    }
   } catch (error) {
-    // On any error, suggest setup
-    console.log('[OMC] run /omc-setup to install properly');
+    // Distinguish installation errors from runtime errors
+    const isInstallError =
+      error instanceof Error &&
+      (error.message.includes("ENOENT") ||
+        error.message.includes("MODULE_NOT_FOUND") ||
+        error.message.includes("Cannot find module"));
+
+    if (isInstallError) {
+      console.log("[OMC] run /omc-setup to install properly");
+    } else {
+      // Output fallback message to stdout for status line visibility
+      console.log("[OMC] HUD error - check stderr");
+      // Log actual runtime errors to stderr for debugging
+      console.error(
+        "[OMC HUD Error]",
+        error instanceof Error ? error.message : error,
+      );
+    }
   }
 }
 

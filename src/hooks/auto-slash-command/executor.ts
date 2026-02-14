@@ -8,7 +8,7 @@
 
 import { existsSync, readdirSync, readFileSync } from 'fs';
 import { join, basename } from 'path';
-import { homedir } from 'os';
+import { getClaudeConfigDir } from '../../utils/paths.js';
 import type {
   ParsedSlashCommand,
   CommandInfo,
@@ -16,9 +16,10 @@ import type {
   CommandScope,
   ExecuteResult,
 } from './types.js';
+import { resolveLiveData } from './live-data.js';
 
 /** Claude config directory */
-const CLAUDE_CONFIG_DIR = join(homedir(), '.claude');
+const CLAUDE_CONFIG_DIR = getClaudeConfigDir();
 
 /**
  * Parse YAML-like frontmatter from markdown file
@@ -210,9 +211,10 @@ function formatCommandTemplate(cmd: CommandInfo, args: string): string {
   sections.push(`**Scope**: ${cmd.scope}\n`);
   sections.push('---\n');
 
-  // Resolve arguments in content
+  // Resolve arguments in content, then execute any live-data commands
   const resolvedContent = resolveArguments(cmd.content || '', args);
-  sections.push(resolvedContent.trim());
+  const injectedContent = resolveLiveData(resolvedContent);
+  sections.push(injectedContent.trim());
 
   if (args && !cmd.content?.includes('$ARGUMENTS')) {
     sections.push('\n\n---\n');
@@ -232,7 +234,7 @@ export function executeSlashCommand(parsed: ParsedSlashCommand): ExecuteResult {
   if (!command) {
     return {
       success: false,
-      error: `Command "/${parsed.command}" not found. Available commands are in ~/.claude/commands/ or .claude/commands/`,
+      error: `Command "/${parsed.command}" not found. Available commands are in $CLAUDE_CONFIG_DIR/commands/ (or ~/.claude/commands/ by default) or .claude/commands/`,
     };
   }
 

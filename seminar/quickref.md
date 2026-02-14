@@ -24,21 +24,21 @@
 ## Combine Modes
 `ralph ulw: migrate database` = persistence + parallelism
 
-## Agent Tiers (32 Total)
+## Agent Tiers (28 Total)
 
 | Domain | Haiku (fast) | Sonnet (balanced) | Opus (complex) |
 |--------|-------------|-------------------|-----------------|
 | Analysis | architect-low | architect-medium | architect |
 | Execution | executor-low | executor | executor-high |
-| Search | explore | explore-medium | explore-high |
+| Search | explore | - | explore-high |
 | Frontend | designer-low | designer | designer-high |
-| Testing | - | qa-tester | qa-tester-high |
+| Testing | - | qa-tester | - |
 | Security | security-rev-low | - | security-reviewer |
-| Data Sci | scientist-low | scientist | scientist-high |
-| Research | researcher-low | researcher | - |
-| Build | build-fixer-low | build-fixer | - |
+| Data Sci | - | scientist | scientist-high |
+| Research | - | researcher | - |
+| Build | - | build-fixer | - |
 | TDD | tdd-guide-low | tdd-guide | - |
-| Code Review | code-reviewer-low | - | code-reviewer |
+| Code Review | - | - | code-reviewer |
 | Docs | writer | - | - |
 | Visual | - | vision | - |
 | Planning | - | - | planner |
@@ -61,8 +61,8 @@
 |---------|---------|
 | `/oh-my-claudecode:omc-setup` | Initial setup wizard |
 | `/oh-my-claudecode:hud setup` | Enable HUD statusline |
-| `/oh-my-claudecode:doctor` | Diagnose issues |
-| `/oh-my-claudecode:help` | Show usage guide |
+| `/oh-my-claudecode:omc-doctor` | Diagnose issues |
+| `/oh-my-claudecode:omc-help` | Show usage guide |
 | `/oh-my-claudecode:cancel` | Stop current operation |
 | `/oh-my-claudecode:note` | Save compaction-resilient note |
 | `/oh-my-claudecode:learner` | Extract reusable skill |

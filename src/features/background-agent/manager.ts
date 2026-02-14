@@ -10,7 +10,7 @@
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync, unlinkSync } from 'fs';
 import { join } from 'path';
-import { homedir } from 'os';
+import { getClaudeConfigDir } from '../../utils/paths.js';
 import { ConcurrencyManager } from './concurrency.js';
 import type {
   BackgroundTask,
@@ -26,7 +26,7 @@ import type {
 const DEFAULT_TASK_TTL_MS = 30 * 60 * 1000;
 
 /** Storage directory for task state */
-const BACKGROUND_TASKS_DIR = join(homedir(), '.claude', '.omc', 'background-tasks');
+const BACKGROUND_TASKS_DIR = join(getClaudeConfigDir(), '.omc', 'background-tasks');
 
 /**
  * Manages background tasks for the Sisyphus system.
@@ -201,7 +201,8 @@ export class BackgroundManager {
   }
 
   /**
-   * Detect sessions with no recent activity and invoke callback
+   * Detect sessions with no recent activity and handle them
+   * Marks stale tasks as errored even without a callback configured (Bug #9 fix)
    */
   private detectAndHandleStaleSessions(): void {
     const now = Date.now();
@@ -219,6 +220,21 @@ export class BackgroundManager {
         // Invoke callback if configured (allows caller to auto-interrupt)
         if (this.config.onStaleSession) {
           this.config.onStaleSession(task);
+        } else {
+          // Default behavior: mark as error after 2x threshold with no activity
+          if (timeSinceActivity > threshold * 2) {
+            task.status = 'error';
+            task.error = `Task stale: no activity for ${Math.round(timeSinceActivity / 60000)} minutes`;
+            task.completedAt = new Date();
+
+            if (task.concurrencyKey) {
+              this.concurrencyManager.release(task.concurrencyKey);
+            }
+
+            this.clearNotificationsForTask(task.id);
+            this.unpersistTask(task.id);
+            this.tasks.delete(task.id);
+          }
         }
       }
     }

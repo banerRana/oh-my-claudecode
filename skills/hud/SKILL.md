@@ -9,6 +9,8 @@ scope: ~/.claude/**  # DOCUMENTATION ONLY - Allowed write scope
 
 Configure the OMC HUD (Heads-Up Display) for the statusline.
 
+Note: All `~/.claude/...` paths in this guide respect `CLAUDE_CONFIG_DIR` when that environment variable is set.
+
 ## Quick Commands
 
 | Command | Description |
@@ -37,30 +39,15 @@ When you run `/oh-my-claudecode:hud` or `/oh-my-claudecode:hud setup`, the syste
 ls ~/.claude/hud/omc-hud.mjs 2>/dev/null && echo "EXISTS" || echo "MISSING"
 ```
 
-**Step 2:** Check if the plugin is built (CRITICAL - common issue!):
+**Step 2:** Verify the plugin is installed:
 ```bash
-# Find the latest version and check if dist/hud/index.js exists
 PLUGIN_VERSION=$(ls ~/.claude/plugins/cache/omc/oh-my-claudecode/ 2>/dev/null | sort -V | tail -1)
 if [ -n "$PLUGIN_VERSION" ]; then
-  ls ~/.claude/plugins/cache/omc/oh-my-claudecode/$PLUGIN_VERSION/dist/hud/index.js 2>/dev/null && echo "BUILT" || echo "NOT_BUILT"
+  ls ~/.claude/plugins/cache/omc/oh-my-claudecode/$PLUGIN_VERSION/dist/hud/index.js 2>/dev/null && echo "READY" || echo "NOT_FOUND - try reinstalling: /plugin install oh-my-claudecode"
+else
+  echo "Plugin not installed - run: /plugin install oh-my-claudecode"
 fi
 ```
-
-**⚠️ CRITICAL: If NOT_BUILT, the plugin MUST be compiled before the HUD can work!**
-
-**WHY THIS HAPPENS:** The `dist/` directory contains compiled TypeScript code and is NOT stored on GitHub (it's in .gitignore). When you install the plugin from the marketplace, the build step happens automatically via the `prepare` script during `npm install`. However, if the plugin wasn't properly installed or the build failed, you'll get this error.
-
-**THE FIX:** Run npm install in the plugin directory to build it:
-```bash
-cd ~/.claude/plugins/cache/omc/oh-my-claudecode/$PLUGIN_VERSION && npm install
-```
-
-This will:
-1. Install all dependencies
-2. Run the `prepare` script which executes `npm run build`
-3. Generate the `dist/hud/index.js` file that the HUD wrapper needs
-
-**DO NOT** try to download `dist/hud/index.js` from GitHub raw URLs - it doesn't exist there!
 
 **Step 3:** If omc-hud.mjs is MISSING or argument is `setup`, create the HUD directory and script:
 
@@ -85,13 +72,19 @@ import { pathToFileURL } from "node:url";
 
 // Semantic version comparison: returns negative if a < b, positive if a > b, 0 if equal
 function semverCompare(a, b) {
-  const pa = a.replace(/^v/, "").split(".").map(Number);
-  const pb = b.replace(/^v/, "").split(".").map(Number);
+  // Use parseInt to handle pre-release suffixes (e.g. "0-beta" -> 0)
+  const pa = a.replace(/^v/, "").split(".").map(s => parseInt(s, 10) || 0);
+  const pb = b.replace(/^v/, "").split(".").map(s => parseInt(s, 10) || 0);
   for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
     const na = pa[i] || 0;
     const nb = pb[i] || 0;
     if (na !== nb) return na - nb;
   }
+  // If numeric parts equal, non-pre-release > pre-release
+  const aHasPre = /-/.test(a);
+  const bHasPre = /-/.test(b);
+  if (aHasPre && !bHasPre) return -1;
+  if (!aHasPre && bHasPre) return 1;
   return 0;
 }
 
@@ -200,13 +193,13 @@ Shows only the essentials:
 ### Focused (Default)
 Shows all relevant elements:
 ```
-[OMC] ralph:3/10 | US-002 | ultrawork skill:planner | ctx:67% | agents:2 | bg:3/5 | todos:2/5
+[OMC] branch:main | ralph:3/10 | US-002 | ultrawork skill:planner | ctx:67% | agents:2 | bg:3/5 | todos:2/5
 ```
 
 ### Full
 Shows everything including multi-line agent details:
 ```
-[OMC] ralph:3/10 | US-002 (2/5) | ultrawork | ctx:[████░░]67% | agents:3 | bg:3/5 | todos:2/5
+[OMC] repo:oh-my-claudecode branch:main | ralph:3/10 | US-002 (2/5) | ultrawork | ctx:[████░░]67% | agents:3 | bg:3/5 | todos:2/5
 ├─ O architect    2m   analyzing architecture patterns...
 ├─ e explore     45s   searching for test files
 └─ s executor     1m   implementing validation logic
@@ -225,6 +218,8 @@ When agents are running, the HUD shows detailed information on separate lines:
 | Element | Description |
 |---------|-------------|
 | `[OMC]` | Mode identifier |
+| `repo:name` | Git repository name (cyan) |
+| `branch:name` | Git branch name (cyan) |
 | `ralph:3/10` | Ralph loop iteration/max |
 | `US-002` | Current PRD story ID |
 | `ultrawork` | Active mode badge |
@@ -278,7 +273,7 @@ You can manually edit the config file. Each option can be set individually - any
 If the HUD is not showing:
 1. Run `/oh-my-claudecode:hud setup` to auto-install and configure
 2. Restart Claude Code after setup completes
-3. If still not working, run `/oh-my-claudecode:doctor` for full diagnostics
+3. If still not working, run `/oh-my-claudecode:omc-doctor` for full diagnostics
 
 Manual verification:
 - HUD script: `~/.claude/hud/omc-hud.mjs`
