@@ -43,9 +43,14 @@ export function extractOmcLaunchFlags(args: string[]): {
   let i = 0;
   while (i < args.length) {
     const arg = args[i];
-    if (arg === '--session' && i + 1 < args.length) {
-      session = args[i + 1];
-      i += 2;
+    if (arg === '--session') {
+      if (i + 1 < args.length) {
+        session = args[i + 1];
+        i += 2;
+      } else {
+        // --session at end without value: consume the flag, session stays undefined
+        i++;
+      }
     } else if (arg === '--no-tmux') {
       noTmux = true;
       i++;
