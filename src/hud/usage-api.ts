@@ -13,7 +13,7 @@
  */
 
 import { existsSync, readFileSync, writeFileSync, renameSync, unlinkSync, mkdirSync } from 'fs';
-import { homedir } from 'os';
+import { getClaudeConfigDir } from '../utils/paths.js';
 import { join, dirname } from 'path';
 import { execSync } from 'child_process';
 import https from 'https';
@@ -36,6 +36,8 @@ interface UsageCache {
   timestamp: number;
   data: RateLimits | null;
   error?: boolean;
+  /** Provider that produced this cache entry */
+  source?: 'anthropic' | 'zai';
 }
 
 interface OAuthCredentials {
@@ -54,11 +56,38 @@ interface UsageApiResponse {
   seven_day_opus?: { utilization?: number; resets_at?: string };
 }
 
+interface ZaiQuotaResponse {
+  data?: {
+    limits?: Array<{
+      type: string;           // 'TOKENS_LIMIT' | 'TIME_LIMIT'
+      percentage: number;     // 0-100
+      remain_count?: number;
+      quota_count?: number;
+      currentValue?: number;
+      usage?: number;
+      nextResetTime?: number; // Unix timestamp in milliseconds
+    }>;
+  };
+}
+
+/**
+ * Check if a URL points to z.ai (exact hostname match)
+ */
+export function isZaiHost(urlString: string): boolean {
+  try {
+    const url = new URL(urlString);
+    const hostname = url.hostname.toLowerCase();
+    return hostname === 'z.ai' || hostname.endsWith('.z.ai');
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Get the cache file path
  */
 function getCachePath(): string {
-  return join(homedir(), '.claude/plugins/oh-my-claudecode/.usage-cache.json');
+  return join(getClaudeConfigDir(), 'plugins', 'oh-my-claudecode', '.usage-cache.json');
 }
 
 /**
@@ -80,6 +109,15 @@ function readCache(): UsageCache | null {
       if (cache.data.weeklyResetsAt) {
         cache.data.weeklyResetsAt = new Date(cache.data.weeklyResetsAt as unknown as string);
       }
+      if (cache.data.sonnetWeeklyResetsAt) {
+        cache.data.sonnetWeeklyResetsAt = new Date(cache.data.sonnetWeeklyResetsAt as unknown as string);
+      }
+      if (cache.data.opusWeeklyResetsAt) {
+        cache.data.opusWeeklyResetsAt = new Date(cache.data.opusWeeklyResetsAt as unknown as string);
+      }
+      if (cache.data.monthlyResetsAt) {
+        cache.data.monthlyResetsAt = new Date(cache.data.monthlyResetsAt as unknown as string);
+      }
     }
 
     return cache;
@@ -91,7 +129,7 @@ function readCache(): UsageCache | null {
 /**
  * Write usage data to cache
  */
-function writeCache(data: RateLimits | null, error = false): void {
+function writeCache(data: RateLimits | null, error = false, source?: 'anthropic' | 'zai'): void {
   try {
     const cachePath = getCachePath();
     const cacheDir = dirname(cachePath);
@@ -104,6 +142,7 @@ function writeCache(data: RateLimits | null, error = false): void {
       timestamp: Date.now(),
       data,
       error,
+      source,
     };
 
     writeFileSync(cachePath, JSON.stringify(cache, null, 2));
@@ -159,7 +198,7 @@ function readKeychainCredentials(): OAuthCredentials | null {
  */
 function readFileCredentials(): OAuthCredentials | null {
   try {
-    const credPath = join(homedir(), '.claude/.credentials.json');
+    const credPath = join(getClaudeConfigDir(), '.credentials.json');
     if (!existsSync(credPath)) return null;
 
     const content = readFileSync(credPath, 'utf-8');
@@ -317,13 +356,70 @@ function fetchUsageFromApi(accessToken: string): Promise<UsageApiResponse | null
 }
 
 /**
+ * Fetch usage from z.ai GLM API
+ */
+function fetchUsageFromZai(): Promise<ZaiQuotaResponse | null> {
+  return new Promise((resolve) => {
+    const baseUrl = process.env.ANTHROPIC_BASE_URL;
+    const authToken = process.env.ANTHROPIC_AUTH_TOKEN;
+
+    if (!baseUrl || !authToken) {
+      resolve(null);
+      return;
+    }
+
+    try {
+      const url = new URL(baseUrl);
+      const baseDomain = `${url.protocol}//${url.host}`;
+      const quotaLimitUrl = `${baseDomain}/api/monitor/usage/quota/limit`;
+      const urlObj = new URL(quotaLimitUrl);
+
+      const req = https.request(
+        {
+          hostname: urlObj.hostname,
+          path: urlObj.pathname,
+          method: 'GET',
+          headers: {
+            'Authorization': authToken,
+            'Content-Type': 'application/json',
+            'Accept-Language': 'en-US,en',
+          },
+          timeout: API_TIMEOUT_MS,
+        },
+        (res) => {
+          let data = '';
+          res.on('data', (chunk) => { data += chunk; });
+          res.on('end', () => {
+            if (res.statusCode === 200) {
+              try {
+                resolve(JSON.parse(data));
+              } catch {
+                resolve(null);
+              }
+            } else {
+              resolve(null);
+            }
+          });
+        }
+      );
+
+      req.on('error', () => resolve(null));
+      req.on('timeout', () => { req.destroy(); resolve(null); });
+      req.end();
+    } catch {
+      resolve(null);
+    }
+  });
+}
+
+/**
  * Persist refreshed credentials back to the file-based credential store.
  * Keychain write-back is not supported (read-only for HUD).
  * Updates only the claudeAiOauth fields, preserving other data.
  */
 function writeBackCredentials(creds: OAuthCredentials): void {
   try {
-    const credPath = join(homedir(), '.claude/.credentials.json');
+    const credPath = join(getClaudeConfigDir(), '.credentials.json');
     if (!existsSync(credPath)) return;
 
     const content = readFileSync(credPath, 'utf-8');
@@ -374,6 +470,14 @@ function writeBackCredentials(creds: OAuthCredentials): void {
 }
 
 /**
+ * Clamp values to 0-100 and filter invalid
+ */
+function clamp(v: number | undefined): number {
+  if (v == null || !isFinite(v)) return 0;
+  return Math.max(0, Math.min(100, v));
+}
+
+/**
  * Parse API response into RateLimits
  */
 function parseUsageResponse(response: UsageApiResponse): RateLimits | null {
@@ -382,12 +486,6 @@ function parseUsageResponse(response: UsageApiResponse): RateLimits | null {
 
   // Need at least one valid value
   if (fiveHour == null && sevenDay == null) return null;
-
-  // Clamp values to 0-100 and filter invalid
-  const clamp = (v: number | undefined): number => {
-    if (v == null || !isFinite(v)) return 0;
-    return Math.max(0, Math.min(100, v));
-  };
 
   // Parse ISO 8601 date strings to Date objects
   const parseDate = (dateStr: string | undefined): Date | null => {
@@ -417,10 +515,48 @@ function parseUsageResponse(response: UsageApiResponse): RateLimits | null {
     result.sonnetWeeklyPercent = clamp(sonnetSevenDay);
     result.sonnetWeeklyResetsAt = parseDate(sonnetResetsAt);
   }
-  // If API doesn't return per-model data, sonnetWeeklyPercent remains undefined
-  // This is more accurate than estimating with arbitrary percentages
+
+  // Add Opus-specific quota if available from API
+  const opusSevenDay = response.seven_day_opus?.utilization;
+  const opusResetsAt = response.seven_day_opus?.resets_at;
+  if (opusSevenDay != null) {
+    result.opusWeeklyPercent = clamp(opusSevenDay);
+    result.opusWeeklyResetsAt = parseDate(opusResetsAt);
+  }
 
   return result;
+}
+
+/**
+ * Parse z.ai API response into RateLimits
+ */
+export function parseZaiResponse(response: ZaiQuotaResponse): RateLimits | null {
+  const limits = response.data?.limits;
+  if (!limits || limits.length === 0) return null;
+
+  const tokensLimit = limits.find(l => l.type === 'TOKENS_LIMIT');
+  const timeLimit = limits.find(l => l.type === 'TIME_LIMIT');
+
+  if (!tokensLimit && !timeLimit) return null;
+
+  // Parse nextResetTime (Unix timestamp in milliseconds) to Date
+  const parseResetTime = (timestamp: number | undefined): Date | null => {
+    if (!timestamp) return null;
+    try {
+      const date = new Date(timestamp);
+      return isNaN(date.getTime()) ? null : date;
+    } catch {
+      return null;
+    }
+  };
+
+  return {
+    fiveHourPercent: clamp(tokensLimit?.percentage),
+    fiveHourResetsAt: parseResetTime(tokensLimit?.nextResetTime),
+    // z.ai has no weekly quota; leave weeklyPercent undefined so HUD hides it
+    monthlyPercent: timeLimit ? clamp(timeLimit.percentage) : undefined,
+    monthlyResetsAt: timeLimit ? (parseResetTime(timeLimit.nextResetTime) ?? null) : undefined,
+  };
 }
 
 /**
@@ -432,50 +568,67 @@ function parseUsageResponse(response: UsageApiResponse): RateLimits | null {
  * - API call failed
  */
 export async function getUsage(): Promise<RateLimits | null> {
-  // Check cache first
+  const baseUrl = process.env.ANTHROPIC_BASE_URL;
+  const authToken = process.env.ANTHROPIC_AUTH_TOKEN;
+  const isZai = baseUrl != null && isZaiHost(baseUrl);
+  const currentSource: 'anthropic' | 'zai' = isZai && authToken ? 'zai' : 'anthropic';
+
+  // Check cache first (source must match to avoid cross-provider stale data)
   const cache = readCache();
-  if (cache && isCacheValid(cache)) {
+  if (cache && isCacheValid(cache) && cache.source === currentSource) {
     return cache.data;
   }
 
-  // Get credentials
-  let creds = getCredentials();
-  if (!creds) {
-    writeCache(null, true);
-    return null;
+  // z.ai path (must precede OAuth check to avoid stale Anthropic credentials)
+  if (isZai && authToken) {
+    const response = await fetchUsageFromZai();
+    if (!response) {
+      writeCache(null, true, 'zai');
+      return null;
+    }
+
+    const usage = parseZaiResponse(response);
+    writeCache(usage, !usage, 'zai');
+    return usage;
   }
 
-  // If credentials are expired, attempt token refresh
-  if (!validateCredentials(creds)) {
-    if (creds.refreshToken) {
-      const refreshed = await refreshAccessToken(creds.refreshToken);
-      if (refreshed) {
-        // Update in-memory credentials
-        creds = { ...creds, ...refreshed };
-        // Persist refreshed credentials back to store
-        writeBackCredentials(creds);
+  // Anthropic OAuth path (official Claude Code support)
+  let creds = getCredentials();
+  if (creds) {
+    // If credentials are expired, attempt token refresh
+    if (!validateCredentials(creds)) {
+      if (creds.refreshToken) {
+        const refreshed = await refreshAccessToken(creds.refreshToken);
+        if (refreshed) {
+          // Update in-memory credentials
+          creds = { ...creds, ...refreshed };
+          // Persist refreshed credentials back to store
+          writeBackCredentials(creds);
+        } else {
+          // Refresh failed - no credentials available
+          creds = null;
+        }
       } else {
-        // Refresh failed - fall through to return null
-        writeCache(null, true);
+        // No refresh token available
+        creds = null;
+      }
+    }
+
+    // If we still have valid credentials, use Anthropic OAuth flow
+    if (creds) {
+      const response = await fetchUsageFromApi(creds.accessToken);
+      if (!response) {
+        writeCache(null, true, 'anthropic');
         return null;
       }
-    } else {
-      // No refresh token available
-      writeCache(null, true);
-      return null;
+
+      const usage = parseUsageResponse(response);
+      writeCache(usage, !usage, 'anthropic');
+      return usage;
     }
   }
 
-  // Fetch from API
-  const response = await fetchUsageFromApi(creds.accessToken);
-  if (!response) {
-    writeCache(null, true);
-    return null;
-  }
-
-  // Parse response
-  const usage = parseUsageResponse(response);
-  writeCache(usage, !usage);
-
-  return usage;
+  // No credentials available
+  writeCache(null, true, 'anthropic');
+  return null;
 }

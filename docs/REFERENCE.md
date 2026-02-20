@@ -8,12 +8,14 @@ Complete reference for oh-my-claudecode. For quick start, see the main [README.m
 
 - [Installation](#installation)
 - [Configuration](#configuration)
-- [Agents (32 Total)](#agents-32-total)
+- [Agents (28 Total)](#agents-28-total)
 - [Skills (37 Total)](#skills-37-total)
 - [Slash Commands](#slash-commands)
 - [Hooks System](#hooks-system)
 - [Magic Keywords](#magic-keywords)
+- [MCP Path Boundary Rules](#mcp-path-boundary-rules)
 - [Platform Support](#platform-support)
+- [Performance Monitoring](#performance-monitoring)
 - [Troubleshooting](#troubleshooting)
 - [Changelog](#changelog)
 
@@ -133,9 +135,33 @@ This is a TypeScript monorepo using:
 - Tests alongside source files
 ```
 
+### Stop Callback Notification Tags
+
+Configure tags for Telegram/Discord stop callbacks with `omc config-stop-callback`.
+
+```bash
+# Set/replace tags
+omc config-stop-callback telegram --enable --token <bot_token> --chat <chat_id> --tag-list "@alice,bob"
+omc config-stop-callback discord --enable --webhook <url> --tag-list "@here,123456789012345678,role:987654321098765432"
+
+# Incremental updates
+omc config-stop-callback telegram --add-tag charlie
+omc config-stop-callback discord --remove-tag @here
+omc config-stop-callback discord --clear-tags
+
+# Inspect current callback config
+omc config-stop-callback telegram --show
+omc config-stop-callback discord --show
+```
+
+Tag behavior:
+- Telegram: `alice` is normalized to `@alice`
+- Discord: supports `@here`, `@everyone`, numeric user IDs (`<@id>`), and role tags (`role:<id>` -> `<@&id>`)
+- `file` callbacks ignore tag options
+
 ---
 
-## Agents (32 Total)
+## Agents (28 Total)
 
 Always use `oh-my-claudecode:` prefix when calling via Task tool.
 
@@ -145,27 +171,27 @@ Always use `oh-my-claudecode:` prefix when calling via Task tool.
 |--------|-------------|-----------------|-------------|
 | **Analysis** | `architect-low` | `architect-medium` | `architect` |
 | **Execution** | `executor-low` | `executor` | `executor-high` |
-| **Search** | `explore` | `explore-medium` | `explore-high` |
-| **Research** | `researcher-low` | `researcher` | - |
+| **Search** | `explore` | - | `explore-high` |
+| **Research** | - | `document-specialist` | - |
 | **Frontend** | `designer-low` | `designer` | `designer-high` |
 | **Docs** | `writer` | - | - |
 | **Visual** | - | `vision` | - |
 | **Planning** | - | - | `planner` |
 | **Critique** | - | - | `critic` |
 | **Pre-Planning** | - | - | `analyst` |
-| **Testing** | - | `qa-tester` | `qa-tester-high` |
+| **Testing** | - | `qa-tester` | - |
 | **Security** | `security-reviewer-low` | - | `security-reviewer` |
-| **Build** | `build-fixer-low` | `build-fixer` | - |
+| **Build** | - | `build-fixer` | - |
 | **TDD** | `tdd-guide-low` | `tdd-guide` | - |
-| **Code Review** | `code-reviewer-low` | - | `code-reviewer` |
-| **Data Science** | `scientist-low` | `scientist` | `scientist-high` |
+| **Code Review** | - | - | `code-reviewer` |
+| **Data Science** | - | `scientist` | `scientist-high` |
 
 ### Agent Selection Guide
 
 | Task Type | Best Agent | Model |
 |-----------|------------|-------|
 | Quick code lookup | `explore` | haiku |
-| Find files/patterns | `explore` or `explore-medium` | haiku/sonnet |
+| Find files/patterns | `explore` | haiku |
 | Complex architectural search | `explore-high` | opus |
 | Simple code change | `executor-low` | haiku |
 | Feature implementation | `executor` | sonnet |
@@ -175,7 +201,7 @@ Always use `oh-my-claudecode:` prefix when calling via Task tool.
 | UI component | `designer` | sonnet |
 | Complex UI system | `designer-high` | opus |
 | Write docs/comments | `writer` | haiku |
-| Research docs/APIs | `researcher` | sonnet |
+| Research docs/APIs | `document-specialist` | sonnet |
 | Analyze images/diagrams | `vision` | sonnet |
 | Strategic planning | `planner` | opus |
 | Review/critique plan | `critic` | opus |
@@ -184,13 +210,13 @@ Always use `oh-my-claudecode:` prefix when calling via Task tool.
 | Security review | `security-reviewer` | opus |
 | Quick security scan | `security-reviewer-low` | haiku |
 | Fix build errors | `build-fixer` | sonnet |
-| Simple build fix | `build-fixer-low` | haiku |
+| Simple build fix | `build-fixer` (model=haiku) | haiku |
 | TDD workflow | `tdd-guide` | sonnet |
 | Quick test suggestions | `tdd-guide-low` | haiku |
 | Code review | `code-reviewer` | opus |
-| Quick code check | `code-reviewer-low` | haiku |
+| Quick code check | `code-reviewer` (model=haiku) | haiku |
 | Data analysis/stats | `scientist` | sonnet |
-| Quick data inspection | `scientist-low` | haiku |
+| Quick data inspection | `scientist` (model=haiku) | haiku |
 | Complex ML/hypothesis | `scientist-high` | opus |
 
 ---
@@ -205,9 +231,9 @@ Always use `oh-my-claudecode:` prefix when calling via Task tool.
 | `autopilot` | Full autonomous execution from idea to working code | `/oh-my-claudecode:autopilot` |
 | `ultrawork` | Maximum performance with parallel agents | `/oh-my-claudecode:ultrawork` |
 | `ultrapilot` | Parallel autopilot with 3-5x speedup | `/oh-my-claudecode:ultrapilot` |
-| `swarm` | N coordinated agents with task claiming | `/oh-my-claudecode:swarm` |
+| `team` | N coordinated agents on shared task list using native teams (alias: `swarm`) | `/oh-my-claudecode:team` |
+| `swarm` | Compatibility facade over team orchestration | `/oh-my-claudecode:swarm` |
 | `pipeline` | Sequential agent chaining | `/oh-my-claudecode:pipeline` |
-| `ecomode` | Token-efficient parallel execution | `/oh-my-claudecode:ecomode` |
 | `ralph` | Self-referential development until completion | `/oh-my-claudecode:ralph` |
 | `ralph-init` | Initialize PRD for structured task tracking | `/oh-my-claudecode:ralph-init` |
 | `ultraqa` | Autonomous QA cycling workflow | `/oh-my-claudecode:ultraqa` |
@@ -222,7 +248,7 @@ Always use `oh-my-claudecode:` prefix when calling via Task tool.
 | `deepinit` | Hierarchical AGENTS.md codebase documentation | `/oh-my-claudecode:deepinit` |
 | `deepsearch` | Thorough multi-strategy codebase search | `/oh-my-claudecode:deepsearch` |
 | `analyze` | Deep analysis and investigation | `/oh-my-claudecode:analyze` |
-| `research` | Parallel scientist orchestration | `/oh-my-claudecode:research` |
+| `sciomc` | Parallel scientist orchestration | `/oh-my-claudecode:sciomc` |
 | `frontend-ui-ux` | Designer-turned-developer UI/UX expertise | (silent activation) |
 | `git-master` | Git expert for atomic commits and history | (silent activation) |
 | `tdd` | TDD enforcement: test-first development | `/oh-my-claudecode:tdd` |
@@ -238,15 +264,13 @@ Always use `oh-my-claudecode:` prefix when calling via Task tool.
 | `note` | Save notes to compaction-resilient notepad | `/oh-my-claudecode:note` |
 | `cancel` | Unified cancellation for all modes | `/oh-my-claudecode:cancel` |
 | `omc-setup` | One-time setup wizard | `/oh-my-claudecode:omc-setup` |
-| `doctor` | Diagnose and fix installation issues | `/oh-my-claudecode:doctor` |
-| `help` | Show OMC usage guide | `/oh-my-claudecode:help` |
+| `omc-doctor` | Diagnose and fix installation issues | `/oh-my-claudecode:omc-doctor` |
+| `omc-help` | Show OMC usage guide | `/oh-my-claudecode:omc-help` |
 | `hud` | Configure HUD statusline | `/oh-my-claudecode:hud` |
 | `release` | Automated release workflow | `/oh-my-claudecode:release` |
 | `mcp-setup` | Configure MCP servers | `/oh-my-claudecode:mcp-setup` |
-| `learn-about-omc` | Usage pattern analysis | `/oh-my-claudecode:learn-about-omc` |
 | `writer-memory` | Agentic memory system for writers | `/oh-my-claudecode:writer-memory` |
-| `project-session-manager` | Manage isolated dev environments (git worktrees + tmux) | `/oh-my-claudecode:project-session-manager` |
-| `local-skills-setup` | Set up and manage local skills | `/oh-my-claudecode:local-skills-setup` |
+| `project-session-manager` | Manage isolated dev environments (git worktrees + tmux) (alias: `psm`) | `/oh-my-claudecode:project-session-manager` |
 | `skill` | Manage local skills (list, add, remove, search, edit) | `/oh-my-claudecode:skill` |
 
 ---
@@ -261,9 +285,9 @@ All skills are available as slash commands with the prefix `/oh-my-claudecode:`.
 | `/oh-my-claudecode:autopilot <task>` | Full autonomous execution |
 | `/oh-my-claudecode:ultrawork <task>` | Maximum performance mode with parallel agents |
 | `/oh-my-claudecode:ultrapilot <task>` | Parallel autopilot (3-5x faster) |
+| `/oh-my-claudecode:team <N>:<agent> <task>` | Coordinated native team workflow |
 | `/oh-my-claudecode:swarm <N>:<agent> <task>` | Coordinated agent swarm |
 | `/oh-my-claudecode:pipeline <stages>` | Sequential agent chaining |
-| `/oh-my-claudecode:ecomode <task>` | Token-efficient parallel execution |
 | `/oh-my-claudecode:ralph-init <task>` | Initialize PRD for structured task tracking |
 | `/oh-my-claudecode:ralph <task>` | Self-referential loop until task completion |
 | `/oh-my-claudecode:ultraqa <goal>` | Autonomous QA cycling workflow |
@@ -273,17 +297,18 @@ All skills are available as slash commands with the prefix `/oh-my-claudecode:`.
 | `/oh-my-claudecode:deepsearch <query>` | Thorough multi-strategy codebase search |
 | `/oh-my-claudecode:deepinit [path]` | Index codebase with hierarchical AGENTS.md files |
 | `/oh-my-claudecode:analyze <target>` | Deep analysis and investigation |
-| `/oh-my-claudecode:research <topic>` | Parallel research orchestration |
+| `/oh-my-claudecode:sciomc <topic>` | Parallel research orchestration |
 | `/oh-my-claudecode:tdd <feature>` | TDD workflow enforcement |
 | `/oh-my-claudecode:learner` | Extract reusable skill from session |
 | `/oh-my-claudecode:note <content>` | Save notes to notepad.md |
 | `/oh-my-claudecode:cancel` | Unified cancellation |
 | `/oh-my-claudecode:omc-setup` | One-time setup wizard |
-| `/oh-my-claudecode:doctor` | Diagnose and fix installation issues |
-| `/oh-my-claudecode:help` | Show OMC usage guide |
+| `/oh-my-claudecode:omc-doctor` | Diagnose and fix installation issues |
+| `/oh-my-claudecode:omc-help` | Show OMC usage guide |
 | `/oh-my-claudecode:hud` | Configure HUD statusline |
 | `/oh-my-claudecode:release` | Automated release workflow |
 | `/oh-my-claudecode:mcp-setup` | Configure MCP servers |
+| `/oh-my-claudecode:psm <arguments>` | Alias for project session manager |
 
 ---
 
@@ -299,9 +324,10 @@ Oh-my-claudecode includes 31 lifecycle hooks that enhance Claude Code's behavior
 | `ultrawork` | Maximum parallel agent execution |
 | `ralph` | Persistence until verified complete |
 | `ultrapilot` | Parallel autopilot with file ownership |
+| `team-pipeline` | Native team staged pipeline orchestration |
 | `ultraqa` | QA cycling until goal met |
 | `swarm` | Coordinated multi-agent with SQLite task claiming |
-| `mode-registry` | Tracks active execution mode (incl. ecomode) |
+| `mode-registry` | Tracks active execution mode state (including team/ralph/ultrawork/ralplan) |
 | `persistent-mode` | Maintains mode state across sessions |
 
 ### Core Hooks
@@ -334,6 +360,45 @@ Oh-my-claudecode includes 31 lifecycle hooks that enhance Claude Code's behavior
 | `empty-message-sanitizer` | Empty message handling |
 | `permission-handler` | Permission requests and validation |
 | `think-mode` | Extended thinking detection |
+| `code-simplifier` | Auto-simplify recently modified files on Stop (opt-in) |
+
+### Code Simplifier Hook
+
+The `code-simplifier` Stop hook automatically delegates recently modified source files to the
+`code-simplifier` agent after each Claude turn. It is **disabled by default** and must be
+explicitly enabled via `~/.omc/config.json`.
+
+**Enable:**
+```json
+{
+  "codeSimplifier": {
+    "enabled": true
+  }
+}
+```
+
+**Full config options:**
+```json
+{
+  "codeSimplifier": {
+    "enabled": true,
+    "extensions": [".ts", ".tsx", ".js", ".jsx", ".py", ".go", ".rs"],
+    "maxFiles": 10
+  }
+}
+```
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `enabled` | `boolean` | `false` | Opt-in to automatic simplification |
+| `extensions` | `string[]` | `[".ts",".tsx",".js",".jsx",".py",".go",".rs"]` | File extensions to consider |
+| `maxFiles` | `number` | `10` | Maximum files simplified per turn |
+
+**How it works:**
+1. When Claude stops, the hook runs `git diff HEAD --name-only` to find modified files
+2. If modified source files are found, the hook injects a message asking Claude to delegate to the `code-simplifier` agent
+3. The agent simplifies the files for clarity and consistency without changing behavior
+4. A turn-scoped marker prevents the hook from triggering more than once per turn cycle
 
 ### Coordination & Environment
 
@@ -356,7 +421,7 @@ Just include these words anywhere in your prompt to activate enhanced modes:
 | Keyword | Effect |
 |---------|--------|
 | `ultrawork`, `ulw`, `uw` | Activates parallel agent orchestration |
-| `ecomode`, `eco`, `efficient`, `save-tokens`, `budget` | Token-efficient parallel execution |
+| ``, `eco`, `efficient`, `save-tokens`, `budget` | Token-efficient parallel execution |
 | `autopilot`, `build me`, `I want a` | Full autonomous execution |
 | `ultrapilot`, `parallel build`, `swarm build` | Parallel autopilot (3-5x faster) |
 | `ralph`, `don't stop`, `must complete` | Persistence until verified complete |
@@ -364,7 +429,7 @@ Just include these words anywhere in your prompt to activate enhanced modes:
 | `ralplan` | Iterative planning consensus |
 | `search`, `find`, `locate` | Enhanced search mode |
 | `analyze`, `investigate`, `debug` | Deep analysis mode |
-| `research`, `analyze data`, `statistics` | Parallel research orchestration |
+| `sciomc` | Parallel research orchestration |
 | `tdd`, `test first`, `red green` | TDD workflow enforcement |
 | `swarm N agents` | Coordinated agent swarm |
 | `pipeline`, `chain agents` | Sequential agent chaining |
@@ -408,6 +473,99 @@ swarm 5 agents: fix all lint errors
 # Agent chaining
 pipeline: analyze → fix → test this bug
 ```
+
+---
+
+## MCP Path Boundary Rules
+
+The MCP tools (`ask_codex`, `ask_gemini`) enforce strict path boundaries for security. Both `prompt_file` and `output_file` are resolved relative to `working_directory`.
+
+### Default Behavior (Strict Mode)
+
+By default, both files must reside within the `working_directory`:
+
+| Parameter | Requirement |
+|-----------|-------------|
+| `prompt_file` | Must be within `working_directory` (after symlink resolution) |
+| `output_file` | Must be within `working_directory` (after symlink resolution) |
+| `working_directory` | Must be within the project worktree (unless bypassed) |
+
+### Environment Variable Overrides
+
+| Variable | Values | Description |
+|----------|--------|-------------|
+| `OMC_MCP_OUTPUT_PATH_POLICY` | `strict` (default), `redirect_output` | Controls output file path enforcement |
+| `OMC_MCP_OUTPUT_REDIRECT_DIR` | Path (default: `.omc/outputs`) | Directory for redirected outputs when policy is `redirect_output` |
+| `OMC_MCP_ALLOW_EXTERNAL_PROMPT` | `0` (default), `1` | Allow prompt files outside working directory |
+| `OMC_ALLOW_EXTERNAL_WORKDIR` | unset (default), `1` | Allow working_directory outside project worktree |
+| `OMC_DISCORD_WEBHOOK_URL` | URL | Discord webhook URL for notifications |
+| `OMC_DISCORD_NOTIFIER_BOT_TOKEN` | Token | Discord bot token for Bot API notifications |
+| `OMC_DISCORD_NOTIFIER_CHANNEL` | Channel ID | Discord channel ID for Bot API notifications |
+| `OMC_DISCORD_MENTION` | `<@uid>` or `<@&role_id>` | Mention to prepend to Discord messages |
+| `OMC_TELEGRAM_BOT_TOKEN` | Token | Telegram bot token for notifications |
+| `OMC_TELEGRAM_CHAT_ID` | Chat ID | Telegram chat ID for notifications |
+| `OMC_SLACK_WEBHOOK_URL` | URL | Slack incoming webhook URL for notifications |
+
+### Policy Descriptions
+
+**`OMC_MCP_OUTPUT_PATH_POLICY=strict` (Default)**
+- Output files must be within `working_directory`
+- Attempts to write outside the boundary fail with `E_PATH_OUTSIDE_WORKDIR_OUTPUT`
+- Most secure option - recommended for production
+
+**`OMC_MCP_OUTPUT_PATH_POLICY=redirect_output`**
+- Output files are automatically redirected to `OMC_MCP_OUTPUT_REDIRECT_DIR`
+- Only the filename is preserved; directory structure is flattened
+- Useful when you want to collect all outputs in a single location
+- Logs redirection at `[MCP Config]` level
+
+**`OMC_MCP_ALLOW_EXTERNAL_PROMPT=1`**
+- Allows reading prompt files from outside `working_directory`
+- **Security Warning**: Enables reading arbitrary files on the filesystem
+- Use only in trusted environments
+
+**`OMC_ALLOW_EXTERNAL_WORKDIR=1`**
+- Allows `working_directory` to be outside the project worktree
+- Bypasses the worktree boundary check
+- Use when running MCP tools against external projects
+
+### Error Tokens
+
+| Token | Meaning |
+|-------|---------|
+| `E_PATH_OUTSIDE_WORKDIR_PROMPT` | prompt_file is outside working_directory |
+| `E_PATH_OUTSIDE_WORKDIR_OUTPUT` | output_file is outside working_directory |
+| `E_PATH_RESOLUTION_FAILED` | Failed to resolve symlink or directory |
+| `E_WRITE_FAILED` | Failed to write output file (I/O error) |
+| `E_WORKDIR_INVALID` | working_directory does not exist or is inaccessible |
+
+### Example Valid/Invalid Patterns
+
+**Valid paths (working_directory: `/home/user/project`)**
+```
+prompt.txt                    -> /home/user/project/prompt.txt
+./prompts/task.md             -> /home/user/project/prompts/task.md
+../project/output.txt         -> /home/user/project/output.txt (resolves inside)
+.omc/outputs/response.md      -> /home/user/project/.omc/outputs/response.md
+```
+
+**Invalid paths (working_directory: `/home/user/project`)**
+```
+/etc/passwd                   -> Outside working directory (absolute)
+../../etc/shadow              -> Outside working directory (traverses too far)
+/tmp/output.txt               -> Outside working directory (different root)
+```
+
+### Troubleshooting Matrix
+
+| Symptom | Cause | Fix |
+|---------|-------|-----|
+| `E_PATH_OUTSIDE_WORKDIR_PROMPT` error | prompt_file outside working_directory | Move file to working directory or change working_directory to a common ancestor |
+| `E_PATH_OUTSIDE_WORKDIR_OUTPUT` error | output_file outside working_directory | Use relative path within working directory, or set `OMC_MCP_OUTPUT_PATH_POLICY=redirect_output` |
+| `E_PATH_RESOLUTION_FAILED` error | Symlink resolution failed or directory inaccessible | Ensure target directory exists and is accessible |
+| `E_WRITE_FAILED` error | I/O error (permissions, disk full) | Check file permissions and disk space |
+| `working_directory is outside the project worktree` | working_directory not within git worktree | Set `OMC_ALLOW_EXTERNAL_WORKDIR=1` or use a working directory inside the project |
+| Output file not where expected | `redirect_output` policy active | Check `OMC_MCP_OUTPUT_REDIRECT_DIR` (default: `.omc/outputs`) |
 
 ---
 
@@ -470,12 +628,55 @@ pipeline: analyze → fix → test this bug
 
 ---
 
+## Performance Monitoring
+
+oh-my-claudecode includes comprehensive monitoring for agent performance, token usage, and debugging parallel workflows.
+
+For complete documentation, see **[Performance Monitoring Guide](./PERFORMANCE-MONITORING.md)**.
+
+### Quick Overview
+
+| Feature | Description | Access |
+|---------|-------------|--------|
+| **Agent Observatory** | Real-time agent status, efficiency, bottlenecks | HUD / API |
+| **Token Analytics** | Cost tracking, usage reports, budget warnings | `omc stats`, `omc cost` |
+| **Session Replay** | Event timeline for post-session analysis | `.omc/state/agent-replay-*.jsonl` |
+| **Intervention System** | Auto-detection of stale agents, cost overruns | Automatic |
+
+### CLI Commands
+
+```bash
+omc stats          # Current session statistics
+omc cost daily     # Daily cost report
+omc cost weekly    # Weekly cost report
+omc agents         # Agent breakdown
+omc backfill       # Import historical transcript data
+```
+
+### HUD Analytics Preset
+
+Enable detailed cost tracking in your status line:
+
+```json
+{
+  "omcHud": {
+    "preset": "analytics"
+  }
+}
+```
+
+### External Resources
+
+- **[MarginLab.ai](https://marginlab.ai)** - SWE-Bench-Pro performance tracking with statistical significance testing for detecting Claude model degradation
+
+---
+
 ## Troubleshooting
 
 ### Diagnose Installation Issues
 
 ```bash
-/oh-my-claudecode:doctor
+/oh-my-claudecode:omc-doctor
 ```
 
 Checks for:
@@ -493,6 +694,37 @@ Checks for:
 
 Installs or repairs the HUD statusline for real-time status updates.
 
+### HUD Configuration (settings.json)
+
+Configure HUD elements in `~/.claude/settings.json`:
+
+```json
+{
+  "omcHud": {
+    "preset": "focused",
+    "elements": {
+      "cwd": true,
+      "gitRepo": true,
+      "gitBranch": true
+    }
+  }
+}
+```
+
+| Element | Description | Default |
+|---------|-------------|---------|
+| `cwd` | Show current working directory | `false` |
+| `gitRepo` | Show git repository name | `false` |
+| `gitBranch` | Show current git branch | `false` |
+| `omcLabel` | Show [OMC] label | `true` |
+| `contextBar` | Show context window usage | `true` |
+| `agents` | Show active agents count | `true` |
+| `todos` | Show todo progress | `true` |
+| `ralph` | Show ralph loop status | `true` |
+| `autopilot` | Show autopilot status | `true` |
+
+Available presets: `minimal`, `focused`, `full`, `dense`, `analytics`, `opencode`
+
 ### Common Issues
 
 | Issue | Solution |
@@ -501,7 +733,7 @@ Installs or repairs the HUD statusline for real-time status updates.
 | Hooks not executing | Check hook permissions: `chmod +x ~/.claude/hooks/**/*.sh` |
 | Agents not delegating | Verify CLAUDE.md is loaded: check `./.claude/CLAUDE.md` or `~/.claude/CLAUDE.md` |
 | LSP tools not working | Install language servers: `npm install -g typescript-language-server` |
-| Token limit errors | Use `/oh-my-claudecode:ecomode` for token-efficient execution |
+| Token limit errors | Use `/oh-my-claudecode:` for token-efficient execution |
 
 ### Auto-Update
 
@@ -523,7 +755,7 @@ curl -fsSL https://raw.githubusercontent.com/Yeachan-Heo/oh-my-claudecode/main/s
 Or manually:
 
 ```bash
-rm ~/.claude/agents/{architect,researcher,explore,designer,writer,vision,critic,analyst,executor,qa-tester}.md
+rm ~/.claude/agents/{architect,document-specialist,explore,designer,writer,vision,critic,analyst,executor,qa-tester}.md
 rm ~/.claude/commands/{analyze,autopilot,deepsearch,plan,review,ultrawork}.md
 ```
 

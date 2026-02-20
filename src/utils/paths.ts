@@ -7,7 +7,9 @@
  */
 
 import { join } from 'path';
+import { existsSync, unlinkSync, rmSync } from 'fs';
 import { homedir } from 'os';
+import { getConfigDir as getClaudeBaseConfigDir } from './config-dir.js';
 
 /**
  * Convert a path to use forward slashes (for JSON/config files)
@@ -19,10 +21,11 @@ export function toForwardSlash(path: string): string {
 }
 
 /**
- * Get Claude config directory path
+ * Get Claude config directory path.
+ * Respects the CLAUDE_CONFIG_DIR environment variable when set.
  */
 export function getClaudeConfigDir(): string {
-  return join(homedir(), '.claude');
+  return getClaudeBaseConfigDir();
 }
 
 /**
@@ -57,4 +60,45 @@ export function getConfigDir(): string {
     return process.env.APPDATA || join(homedir(), 'AppData', 'Roaming');
   }
   return process.env.XDG_CONFIG_HOME || join(homedir(), '.config');
+}
+
+/**
+ * Get the plugin cache base directory for oh-my-claudecode.
+ * This is the directory containing version subdirectories.
+ *
+ * Structure: <configDir>/plugins/cache/omc/oh-my-claudecode/
+ */
+export function getPluginCacheBase(): string {
+  return join(getClaudeConfigDir(), 'plugins', 'cache', 'omc', 'oh-my-claudecode');
+}
+
+/**
+ * Safely delete a file, ignoring ENOENT errors.
+ * Prevents crashes when cleaning up files that may not exist (Bug #13 fix).
+ */
+export function safeUnlinkSync(filePath: string): boolean {
+  try {
+    if (existsSync(filePath)) {
+      unlinkSync(filePath);
+      return true;
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Safely remove a directory recursively, ignoring errors.
+ */
+export function safeRmSync(dirPath: string): boolean {
+  try {
+    if (existsSync(dirPath)) {
+      rmSync(dirPath, { recursive: true, force: true });
+      return true;
+    }
+    return false;
+  } catch {
+    return false;
+  }
 }

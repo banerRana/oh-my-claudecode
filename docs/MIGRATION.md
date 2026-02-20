@@ -60,7 +60,6 @@ The following skills have been **completely removed** in v3.5.3:
 | `cancel-ralph` | `/oh-my-claudecode:cancel` |
 | `cancel-ultrawork` | `/oh-my-claudecode:cancel` |
 | `cancel-ultraqa` | `/oh-my-claudecode:cancel` |
-| `cancel-ecomode` | `/oh-my-claudecode:cancel` |
 | `omc-default` | `/oh-my-claudecode:omc-setup --local` |
 | `omc-default-global` | `/oh-my-claudecode:omc-setup --global` |
 | `planner` | `/oh-my-claudecode:plan` |
@@ -117,20 +116,18 @@ Your old commands still work! But now you don't need them.
 
 **After 3.0:** Just work naturally - Claude auto-activates the right behaviors. One-time setup: just say "setup omc"
 
-### Package Rename
+### Project Rebrand
 
-The package has been renamed to better reflect its purpose and improve discoverability.
+The project was rebranded to better reflect its purpose and improve discoverability.
 
-- **Old**: `oh-my-claude-sisyphus`
-- **New**: `oh-my-claudecode`
+- **Project/brand name**: `oh-my-claudecode` (GitHub repo, plugin name, commands)
+- **npm package name**: `oh-my-claude-sisyphus` (unchanged)
 
-#### NPM Commands
+> **Why the difference?** The npm package name `oh-my-claude-sisyphus` was kept for backward compatibility with existing installations. The project, GitHub repository, plugin, and all commands use `oh-my-claudecode`.
+
+#### NPM Install Command (unchanged)
 
 ```bash
-# Old
-npm install -g oh-my-claude-sisyphus
-
-# New
 npm install -g oh-my-claude-sisyphus
 ```
 
@@ -178,7 +175,7 @@ All agent names have been updated from Greek mythology references to intuitive, 
 | mnemosyne | learner |
 | sisyphus-junior | executor |
 | orchestrator-sisyphus | coordinator |
-| librarian | researcher |
+| librarian | document-specialist |
 | frontend-engineer | designer |
 | document-writer | writer |
 | multimodal-looker | vision |
@@ -240,7 +237,7 @@ All 2.x commands continue to work. Here's what changed:
 | `/oh-my-claudecode:frontend-ui-ux` | Say "UI", "styling", "component", "design" | ✅ YES (auto-detect) |
 | `/oh-my-claudecode:note "content"` | Say "remember this" or "save this" | ✅ YES (auto-detect) |
 | `/oh-my-claudecode:cancel-ralph` | Say "stop", "cancel", or "abort" | ✅ YES (auto-detect) |
-| `/oh-my-claudecode:doctor` | Invoke normally | ✅ YES (unchanged) |
+| `/oh-my-claudecode:omc-doctor` | Invoke normally | ✅ YES (unchanged) |
 | All other commands | Work exactly as before | ✅ YES |
 
 ### Magic Keywords
@@ -377,7 +374,7 @@ After migration, verify your setup:
    ```
 
 3. **Test a simple command**:
-   Run `/oh-my-claudecode:help` in Claude Code to ensure the plugin is loaded correctly.
+   Run `/oh-my-claudecode:omc-help` in Claude Code to ensure the plugin is loaded correctly.
 
 ### New Features in 3.0
 
@@ -616,24 +613,11 @@ Chain agents with data passing between stages:
 - `review` - explore → architect → critic → executor
 - `implement` - planner → executor → tdd-guide
 - `debug` - explore → architect → build-fixer
-- `research` - parallel(researcher, explore) → architect → writer
+- `research` - parallel(document-specialist, explore) → architect → writer
 - `refactor` - explore → architect-medium → executor-high → qa-tester
 - `security` - explore → security-reviewer → executor → security-reviewer-low
 
-#### 4. Ecomode: Token-Efficient Execution
-
-Maximum parallelism with 30-50% token savings:
-
-```bash
-/oh-my-claudecode:ecomode "refactor the authentication system"
-```
-
-**Smart model routing:**
-- Simple tasks → Haiku (ultra-cheap)
-- Standard work → Sonnet (balanced)
-- Complex reasoning → Opus (when needed)
-
-#### 5. Unified Cancel Command
+#### 4. Unified Cancel Command
 
 Smart cancellation that auto-detects active mode:
 
@@ -642,14 +626,13 @@ Smart cancellation that auto-detects active mode:
 # Or just say: "stop", "cancel", "abort"
 ```
 
-**Auto-detects and cancels:** autopilot, ultrapilot, ralph, ultrawork, ultraqa, ecomode, swarm, pipeline
+**Auto-detects and cancels:** autopilot, ultrapilot, ralph, ultrawork, ultraqa, swarm, pipeline
 
 **Deprecation Notice:**
 Individual cancel commands are deprecated but still work:
 - `/oh-my-claudecode:cancel-ralph` (deprecated)
 - `/oh-my-claudecode:cancel-ultraqa` (deprecated)
 - `/oh-my-claudecode:cancel-ultrawork` (deprecated)
-- `/oh-my-claudecode:cancel-ecomode` (deprecated)
 - `/oh-my-claudecode:cancel-autopilot` (deprecated)
 
 Use `/oh-my-claudecode:cancel` instead.
@@ -683,12 +666,11 @@ When multiple execution mode keywords are present:
 **Conflict Resolution Priority:**
 | Priority | Condition | Result |
 |----------|-----------|--------|
-| 1 (highest) | Both explicit keywords present (e.g., "ulw eco fix errors") | `ecomode` wins (more token-restrictive) |
-| 2 | Single explicit keyword | That mode wins |
-| 3 | Generic "fast"/"parallel" only | Read from config (`defaultExecutionMode`) |
-| 4 (lowest) | No config file | Default to `ultrawork` |
+| 1 (highest) | Single explicit keyword | That mode wins |
+| 2 | Generic "fast"/"parallel" only | Read from config (`defaultExecutionMode`) |
+| 3 (lowest) | No config file | Default to `ultrawork` |
 
-**Explicit mode keywords:** `ulw`, `ultrawork`, `eco`, `ecomode`
+**Explicit mode keywords:** `ulw`, `ultrawork`
 **Generic keywords:** `fast`, `parallel`
 
 Users set their default mode preference via `/oh-my-claudecode:omc-setup`.
@@ -711,7 +693,7 @@ Set your preferred execution mode in `~/.claude/.omc-config.json`:
 
 ```json
 {
-  "defaultExecutionMode": "ultrawork"  // or "ecomode"
+  "defaultExecutionMode": "ultrawork"
 }
 ```
 
@@ -727,7 +709,6 @@ Once upgraded, you automatically gain access to:
 - Ultrapilot (parallel autopilot)
 - Swarm coordination
 - Pipeline workflows
-- Ecomode execution
 - Unified cancel command
 - Explore-high agent
 
@@ -740,7 +721,6 @@ Once upgraded, you automatically gain access to:
 | Multi-component systems | `ultrapilot` | Parallel workers handle independent components |
 | Many small fixes | `swarm` | Atomic task claiming prevents duplicate work |
 | Sequential dependencies | `pipeline` | Data passes between stages |
-| Budget-conscious | `ecomode` | 30-50% token savings with smart routing |
 | Single complex task | `autopilot` | Full autonomous execution |
 | Must complete | `ralph` | Persistence guarantee |
 
@@ -749,8 +729,6 @@ Once upgraded, you automatically gain access to:
 **Explicit mode control (v3.4.0):**
 ```bash
 "ulw: fix all errors"           # ultrawork (explicit)
-"eco: refactor auth system"     # ecomode (explicit)
-"ulw eco: migrate database"     # ecomode wins (conflict resolution)
 "fast: implement feature"       # reads defaultExecutionMode config
 ```
 
@@ -950,8 +928,8 @@ A: Keywords are explicit shortcuts. Natural language triggers auto-detection. Bo
 
 ## Need Help?
 
-- **Diagnose issues**: Run `/oh-my-claudecode:doctor`
-- **See all commands**: Run `/oh-my-claudecode:help`
+- **Diagnose issues**: Run `/oh-my-claudecode:omc-doctor`
+- **See all commands**: Run `/oh-my-claudecode:omc-help`
 - **View real-time status**: Run `/oh-my-claudecode:hud setup`
 - **Review detailed changelog**: See [CHANGELOG.md](../CHANGELOG.md)
 - **Report bugs**: [GitHub Issues](https://github.com/Yeachan-Heo/oh-my-claude-sisyphus/issues)

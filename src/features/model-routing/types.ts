@@ -18,8 +18,8 @@ export type ComplexityTier = 'LOW' | 'MEDIUM' | 'HIGH';
  */
 export const TIER_MODELS: Record<ComplexityTier, string> = {
   LOW: 'claude-haiku-4-5-20251001',
-  MEDIUM: 'claude-sonnet-4-5-20250929',
-  HIGH: 'claude-opus-4-5-20251101',
+  MEDIUM: 'claude-sonnet-4-6-20260217',
+  HIGH: 'claude-opus-4-6-20260205',
 };
 
 /**
@@ -171,6 +171,8 @@ export interface RoutingConfig {
   enabled: boolean;
   /** Default tier when no rules match */
   defaultTier: ComplexityTier;
+  /** Minimum tier to allow (e.g. disable LOW tier by setting minTier to MEDIUM) */
+  minTier?: ComplexityTier;
   /** Whether automatic escalation is enabled */
   escalationEnabled: boolean;
   /** Maximum escalation attempts */

@@ -26,11 +26,14 @@
             "type": "command",
             "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/session-start.mjs\"",
             "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/project-memory-session.mjs\"",
+            "timeout": 5
           }
         ]
-      }
-    ],
-    "Setup": [
+      },
       {
         "matcher": "init",
         "hooks": [
@@ -62,6 +65,16 @@
             "timeout": 3
           }
         ]
+      },
+      {
+        "matcher": "TeamCreate|ExitPlanMode",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/context-safety.mjs\"",
+            "timeout": 3
+          }
+        ]
       }
     ],
     "PermissionRequest": [
@@ -83,6 +96,23 @@
           {
             "type": "command",
             "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/post-tool-verifier.mjs\"",
+            "timeout": 3
+          },
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/project-memory-posttool.mjs\"",
+            "timeout": 3
+          }
+        ]
+      }
+    ],
+    "PostToolUseFailure": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/post-tool-use-failure.mjs\"",
             "timeout": 3
           }
         ]
@@ -108,6 +138,11 @@
             "type": "command",
             "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/subagent-tracker.mjs\" stop",
             "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/verify-deliverables.mjs\"",
+            "timeout": 5
           }
         ]
       }
@@ -120,6 +155,11 @@
             "type": "command",
             "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/pre-compact.mjs\"",
             "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/project-memory-precompact.mjs\"",
+            "timeout": 5
           }
         ]
       }
@@ -130,7 +170,17 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/persistent-mode.mjs\"",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/context-guard-stop.mjs\"",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/persistent-mode.cjs\"",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/code-simplifier.mjs\"",
             "timeout": 5
           }
         ]

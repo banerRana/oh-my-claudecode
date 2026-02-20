@@ -1,7 +1,18 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdirSync, writeFileSync, rmSync } from 'fs';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { mkdirSync, writeFileSync, readFileSync, rmSync, existsSync } from 'fs';
 import { join } from 'path';
-import { tmpdir } from 'os';
+import { tmpdir, homedir } from 'os';
+import { execSync } from 'child_process';
+
+// Mock isTeamEnabled so team/ultrapilot/swarm keywords are detected in CI
+vi.mock('../features/auto-update.js', async (importOriginal) => {
+  const actual = await importOriginal<Record<string, unknown>>();
+  return {
+    ...actual,
+    isTeamEnabled: () => true,
+  };
+});
+
 import {
   extractPromptText,
   removeCodeBlocks,
@@ -29,6 +40,7 @@ import {
   clearRalphState,
   isUltraQAActive
 } from '../hooks/ralph/index.js';
+import { processHook } from '../hooks/bridge.js';
 
 describe('Keyword Detector', () => {
   describe('extractPromptText', () => {
@@ -145,18 +157,18 @@ describe('Keyword Detector', () => {
       expect(detected[0].keyword).toBe('ultrathink');
     });
 
-    it('should detect think keyword', () => {
-      const detected = detectKeywordsWithType('Let me think hard about it');
+    it('should detect ultrathink keyword directly', () => {
+      const detected = detectKeywordsWithType('Let me ultrathink about it');
       expect(detected).toHaveLength(1);
       expect(detected[0].type).toBe('ultrathink');
-      expect(detected[0].keyword).toBe('think hard');
+      expect(detected[0].keyword).toBe('ultrathink');
     });
 
     it('should detect deepsearch keywords for codebase search', () => {
       const patterns = [
         'search the codebase',
         'find in codebase',
-        'search code for pattern'
+        'deepsearch for pattern'
       ];
       for (const pattern of patterns) {
         const detected = detectKeywordsWithType(pattern);
@@ -168,8 +180,8 @@ describe('Keyword Detector', () => {
     it('should detect analyze keywords with restricted patterns', () => {
       const patterns = [
         'deep analyze this code',
-        'investigate the bug',
-        'debug the issue'
+        'deepanalyze this code',
+        'deep-analyze the issue'
       ];
       for (const pattern of patterns) {
         const detected = detectKeywordsWithType(pattern);
@@ -206,7 +218,7 @@ describe('Keyword Detector', () => {
     });
 
     it('should detect multiple different keyword types', () => {
-      const text = 'search the codebase and investigate the bug';
+      const text = 'search the codebase and deep analyze the bug';
       const detected = detectKeywordsWithType(text);
       expect(detected.length).toBeGreaterThanOrEqual(2);
       const types = detected.map(d => d.type);
@@ -232,14 +244,15 @@ describe('Keyword Detector', () => {
       }
     });
 
-    it('should detect ultrapilot keyword', () => {
+    it('should route legacy ultrapilot keyword to team (with dual-emission)', () => {
       const detected = detectKeywordsWithType('use ultrapilot for this');
-      expect(detected).toHaveLength(1);
+      expect(detected).toHaveLength(2);
       expect(detected[0].type).toBe('ultrapilot');
+      expect(detected[1].type).toBe('team');
       expect(detected[0].keyword).toBe('ultrapilot');
     });
 
-    it('should detect ultrapilot patterns', () => {
+    it('should route legacy ultrapilot patterns to team', () => {
       const patterns = [
         'ultrapilot this project',
         'parallel build the app',
@@ -248,47 +261,32 @@ describe('Keyword Detector', () => {
       for (const pattern of patterns) {
         const detected = detectKeywordsWithType(pattern);
         expect(detected.length).toBeGreaterThan(0);
-        const hasUltrapilot = detected.some(d => d.type === 'ultrapilot');
-        expect(hasUltrapilot).toBe(true);
+        const hasTeam = detected.some(d => d.type === 'team');
+        expect(hasTeam).toBe(true);
       }
     });
 
-    it('should detect ecomode keyword', () => {
-      const detected = detectKeywordsWithType('use ecomode for this');
-      expect(detected).toHaveLength(1);
-      expect(detected[0].type).toBe('ecomode');
-      expect(detected[0].keyword).toBe('ecomode');
-    });
-
-    it('should detect ecomode variations', () => {
-      const ecoTerms = ['eco', 'ecomode', 'efficient', 'save-tokens', 'budget'];
-      for (const term of ecoTerms) {
-        const detected = detectKeywordsWithType(`Use ${term} mode`);
-        expect(detected).toHaveLength(1);
-        expect(detected[0].type).toBe('ecomode');
-        expect(detected[0].keyword).toBe(term);
-      }
-    });
-
-    it('should detect swarm keyword', () => {
+    it('should route legacy swarm keyword to team (with dual-emission)', () => {
       const detected = detectKeywordsWithType('swarm 5 agents to fix this');
-      expect(detected).toHaveLength(1);
+      expect(detected).toHaveLength(2);
       expect(detected[0].type).toBe('swarm');
+      expect(detected[1].type).toBe('team');
       expect(detected[0].keyword).toBe('swarm 5 agents');
     });
 
-    it('should detect coordinated agents pattern', () => {
+    it('should route coordinated agents pattern to team (with dual-emission)', () => {
       const detected = detectKeywordsWithType('use coordinated agents');
-      expect(detected).toHaveLength(1);
+      expect(detected).toHaveLength(2);
       expect(detected[0].type).toBe('swarm');
+      expect(detected[1].type).toBe('team');
       expect(detected[0].keyword).toBe('coordinated agents');
     });
 
     it('should detect pipeline keyword', () => {
-      const detected = detectKeywordsWithType('pipeline this task');
+      const detected = detectKeywordsWithType('use agent pipeline for this');
       expect(detected).toHaveLength(1);
       expect(detected[0].type).toBe('pipeline');
-      expect(detected[0].keyword).toBe('pipeline');
+      expect(detected[0].keyword).toBe('agent pipeline');
     });
 
     it('should detect chain agents pattern', () => {
@@ -328,7 +326,7 @@ describe('Keyword Detector', () => {
     it('should detect tdd patterns', () => {
       const patterns = [
         'test first development',
-        'red green refactor'
+        'use tdd approach'
       ];
       for (const pattern of patterns) {
         const detected = detectKeywordsWithType(pattern);
@@ -338,24 +336,9 @@ describe('Keyword Detector', () => {
       }
     });
 
-    it('should detect research keyword', () => {
+    it('should not detect research keyword', () => {
       const detected = detectKeywordsWithType('research this topic');
-      expect(detected).toHaveLength(1);
-      expect(detected[0].type).toBe('research');
-      expect(detected[0].keyword).toBe('research');
-    });
-
-    it('should detect research patterns', () => {
-      const patterns = [
-        'analyze data from the file',
-        'run statistics on this'
-      ];
-      for (const pattern of patterns) {
-        const detected = detectKeywordsWithType(pattern);
-        expect(detected.length).toBeGreaterThan(0);
-        const hasResearch = detected.some(d => d.type === 'research');
-        expect(hasResearch).toBe(true);
-      }
+      expect(detected).toHaveLength(0);
     });
 
     it('should detect deepsearch keyword', () => {
@@ -368,9 +351,8 @@ describe('Keyword Detector', () => {
     it('should detect deepsearch patterns', () => {
       const patterns = [
         'search the codebase for errors',
-        'search codebase for pattern',
         'find in codebase',
-        'find in all files'
+        'find in the codebase'
       ];
       for (const pattern of patterns) {
         const detected = detectKeywordsWithType(pattern);
@@ -396,10 +378,8 @@ describe('Keyword Detector', () => {
     it('should detect analyze patterns with restrictions', () => {
       const patterns = [
         'deep analyze this code',
-        'investigate the bug',
-        'investigate this issue',
-        'debug the problem',
-        'debug this error'
+        'deepanalyze this issue',
+        'deep-analyze the problem'
       ];
       for (const pattern of patterns) {
         const detected = detectKeywordsWithType(pattern);
@@ -414,7 +394,9 @@ describe('Keyword Detector', () => {
         'how to do this',
         'understand this code',
         'review this code',
-        'analyze without context'
+        'analyze without context',
+        'investigate the bug',
+        'debug the issue'
       ];
       for (const pattern of patterns) {
         const detected = detectKeywordsWithType(pattern);
@@ -428,7 +410,7 @@ describe('Keyword Detector', () => {
     it('should return true when keyword exists', () => {
       expect(hasKeyword('use ultrawork mode')).toBe(true);
       expect(hasKeyword('search the codebase')).toBe(true);
-      expect(hasKeyword('investigate the bug')).toBe(true);
+      expect(hasKeyword('deep analyze the bug')).toBe(true);
     });
 
     it('should return false when no keyword exists', () => {
@@ -461,7 +443,7 @@ describe('Keyword Detector', () => {
     });
 
     it('should return ultrathink when present', () => {
-      const text = 'think hard about this problem';
+      const text = 'ultrathink about this problem';
       const primary = getPrimaryKeyword(text);
       expect(primary).not.toBeNull();
       expect(primary!.type).toBe('ultrathink');
@@ -475,7 +457,7 @@ describe('Keyword Detector', () => {
     });
 
     it('should return analyze when only analyze keyword', () => {
-      const text = 'investigate the issue';
+      const text = 'deep analyze the issue';
       const primary = getPrimaryKeyword(text);
       expect(primary).not.toBeNull();
       expect(primary!.type).toBe('analyze');
@@ -495,7 +477,7 @@ describe('Keyword Detector', () => {
 
     it('should return first detected when same priority', () => {
       // deepsearch has higher priority than analyze in the priority list
-      const text = 'search the codebase and investigate the bug';
+      const text = 'search the codebase and deep analyze the bug';
       const primary = getPrimaryKeyword(text);
       expect(primary).not.toBeNull();
       // Should return deepsearch as it comes first in priority list
@@ -527,26 +509,20 @@ describe('Keyword Detector', () => {
       expect(primary!.type).toBe('ralph');
     });
 
-    it('should prioritize ultrapilot correctly', () => {
+    it('should prioritize ultrapilot for legacy ultrapilot trigger', () => {
       const primary = getPrimaryKeyword('ultrapilot this task');
       expect(primary).not.toBeNull();
       expect(primary!.type).toBe('ultrapilot');
     });
 
-    it('should prioritize ecomode correctly', () => {
-      const primary = getPrimaryKeyword('use efficient mode for this');
-      expect(primary).not.toBeNull();
-      expect(primary!.type).toBe('ecomode');
-    });
-
-    it('should prioritize swarm correctly', () => {
+    it('should prioritize team for legacy swarm trigger', () => {
       const primary = getPrimaryKeyword('swarm 5 agents for this');
       expect(primary).not.toBeNull();
-      expect(primary!.type).toBe('swarm');
+      expect(primary!.type).toBe('team');
     });
 
     it('should prioritize pipeline correctly', () => {
-      const primary = getPrimaryKeyword('pipeline the task');
+      const primary = getPrimaryKeyword('agent pipeline the task');
       expect(primary).not.toBeNull();
       expect(primary!.type).toBe('pipeline');
     });
@@ -569,10 +545,9 @@ describe('Keyword Detector', () => {
       expect(primary!.type).toBe('tdd');
     });
 
-    it('should prioritize research correctly', () => {
+    it('should return null for removed research keyword', () => {
       const primary = getPrimaryKeyword('research this topic');
-      expect(primary).not.toBeNull();
-      expect(primary!.type).toBe('research');
+      expect(primary).toBeNull();
     });
 
     it('should prioritize deepsearch over generic search', () => {
@@ -582,10 +557,189 @@ describe('Keyword Detector', () => {
     });
 
     it('should prioritize analyze with restricted pattern', () => {
-      const primary = getPrimaryKeyword('investigate the bug');
+      const primary = getPrimaryKeyword('deep analyze the bug');
       expect(primary).not.toBeNull();
       expect(primary!.type).toBe('analyze');
     });
+  });
+});
+
+describe('Team staged workflow integration', () => {
+  let testDir: string;
+  const sessionId = 'team-session-test';
+
+  beforeEach(() => {
+    testDir = join(tmpdir(), `omc-team-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    mkdirSync(join(testDir, '.omc', 'state', 'sessions', sessionId), { recursive: true });
+    execSync('git init', { cwd: testDir });
+  });
+
+  afterEach(() => {
+    rmSync(testDir, { recursive: true, force: true });
+  });
+
+  it('restores active Team stage on session-start', async () => {
+    writeFileSync(
+      join(testDir, '.omc', 'state', 'sessions', sessionId, 'team-state.json'),
+      JSON.stringify({
+        active: true,
+        session_id: sessionId,
+        stage: 'team-exec',
+        team_name: 'delivery-team'
+      })
+    );
+
+    const result = await processHook('session-start', {
+      sessionId,
+      directory: testDir,
+    });
+
+    expect(result.continue).toBe(true);
+    expect(result.message || '').toContain('[TEAM MODE RESTORED]');
+    expect(result.message || '').toContain('delivery-team');
+    expect(result.message || '').toContain('team-exec');
+  });
+
+  it('emits terminal Team restore guidance on cancelled stage', async () => {
+    writeFileSync(
+      join(testDir, '.omc', 'state', 'sessions', sessionId, 'team-state.json'),
+      JSON.stringify({
+        active: true,
+        session_id: sessionId,
+        stage: 'team-fix',
+        status: 'cancelled',
+        team_name: 'delivery-team'
+      })
+    );
+
+    const result = await processHook('session-start', {
+      sessionId,
+      directory: testDir,
+    });
+
+    expect(result.continue).toBe(true);
+    expect(result.message || '').toContain('[TEAM MODE TERMINAL STATE DETECTED]');
+    expect(result.message || '').toContain('cancel');
+  });
+
+  it('enforces verify stage continuation while active and non-terminal', async () => {
+    writeFileSync(
+      join(testDir, '.omc', 'state', 'sessions', sessionId, 'team-state.json'),
+      JSON.stringify({
+        active: true,
+        session_id: sessionId,
+        stage: 'team-verify',
+        team_name: 'delivery-team'
+      })
+    );
+
+    const result = await processHook('persistent-mode', {
+      sessionId,
+      directory: testDir,
+    });
+
+    expect(result.continue).toBe(true);
+    expect(result.message).toContain('[TEAM MODE CONTINUATION]');
+    expect(result.message).toContain('team-verify');
+    expect(result.message).toContain('Continue verification');
+  });
+
+  it('enforces fix stage continuation while active and non-terminal', async () => {
+    writeFileSync(
+      join(testDir, '.omc', 'state', 'sessions', sessionId, 'team-state.json'),
+      JSON.stringify({
+        active: true,
+        session_id: sessionId,
+        stage: 'team-fix',
+        team_name: 'delivery-team'
+      })
+    );
+
+    const result = await processHook('persistent-mode', {
+      sessionId,
+      directory: testDir,
+    });
+
+    expect(result.continue).toBe(true);
+    expect(result.message).toContain('[TEAM MODE CONTINUATION]');
+    expect(result.message).toContain('team-fix');
+    expect(result.message).toContain('fix loop');
+  });
+
+  it('allows terminal cleanup when Team stage is cancelled', async () => {
+    writeFileSync(
+      join(testDir, '.omc', 'state', 'sessions', sessionId, 'team-state.json'),
+      JSON.stringify({
+        active: true,
+        session_id: sessionId,
+        stage: 'team-verify',
+        status: 'cancelled',
+        team_name: 'delivery-team'
+      })
+    );
+
+    const result = await processHook('persistent-mode', {
+      sessionId,
+      directory: testDir,
+    });
+
+    expect(result.continue).toBe(true);
+    expect(result.message || '').not.toContain('[TEAM MODE CONTINUATION]');
+  });
+});
+
+describe('Persistent-mode reply cleanup behavior', () => {
+  const originalHome = process.env.HOME;
+  const originalUserProfile = process.env.USERPROFILE;
+  let testDir: string;
+  let tempHome: string;
+  const sessionId = 'reply-cleanup-session';
+
+  beforeEach(() => {
+    testDir = join(tmpdir(), `omc-reply-cleanup-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    tempHome = join(tmpdir(), `omc-reply-home-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    mkdirSync(testDir, { recursive: true });
+    mkdirSync(tempHome, { recursive: true });
+    execSync('git init', { cwd: testDir });
+
+    process.env.HOME = tempHome;
+    process.env.USERPROFILE = tempHome;
+  });
+
+  afterEach(() => {
+    process.env.HOME = originalHome;
+    process.env.USERPROFILE = originalUserProfile;
+    rmSync(testDir, { recursive: true, force: true });
+    rmSync(tempHome, { recursive: true, force: true });
+  });
+
+  it('does not remove reply-session registry on idle Stop/persistent-mode', async () => {
+    const registryPath = join(homedir(), '.omc', 'state', 'reply-session-registry.jsonl');
+    mkdirSync(join(homedir(), '.omc', 'state'), { recursive: true });
+    writeFileSync(
+      registryPath,
+      `${JSON.stringify({
+        platform: 'telegram',
+        messageId: '123',
+        sessionId,
+        tmuxPaneId: '%1',
+        tmuxSessionName: 'main',
+        event: 'session-start',
+        createdAt: new Date().toISOString(),
+      })}\n`,
+    );
+
+    const before = readFileSync(registryPath, 'utf-8');
+    const result = await processHook('persistent-mode', {
+      sessionId,
+      directory: testDir,
+    });
+    const after = readFileSync(registryPath, 'utf-8');
+
+    expect(result.continue).toBe(true);
+    expect(existsSync(registryPath)).toBe(true);
+    expect(after).toBe(before);
+    expect(after).toContain(sessionId);
   });
 });
 
@@ -959,7 +1113,7 @@ function search() {
 }
 \`\`\`
 
-Now investigate the bug
+Now deep analyze the bug
     `;
 
     const detected = detectKeywordsWithType(removeCodeBlocks(text));
@@ -982,7 +1136,7 @@ Now investigate the bug
   });
 
   it('should prioritize ultrawork even with other keywords', () => {
-    const text = 'search the codebase, investigate the bug, and use ultrawork mode';
+    const text = 'search the codebase, deep analyze the bug, and use ultrawork mode';
     const primary = getPrimaryKeyword(text);
 
     expect(primary).not.toBeNull();
@@ -1263,8 +1417,11 @@ describe('Mutual Exclusion - UltraQA and Ralph', () => {
 
   describe('UltraQA mutual exclusion', () => {
     it('should fail to start UltraQA when Ralph is active', () => {
-      // Activate Ralph first
-      const ralphStateFile = join(testDir, '.omc', 'state', 'ralph-state.json');
+      // Activate Ralph first - write to session-scoped path since startUltraQA
+      // passes sessionId which makes readRalphState check session path only
+      const sessionDir = join(testDir, '.omc', 'state', 'sessions', 'test-session');
+      mkdirSync(sessionDir, { recursive: true });
+      const ralphStateFile = join(sessionDir, 'ralph-state.json');
       writeFileSync(ralphStateFile, JSON.stringify({ active: true }));
 
       // Try to start UltraQA
@@ -1299,8 +1456,11 @@ describe('Mutual Exclusion - UltraQA and Ralph', () => {
 
   describe('Ralph mutual exclusion', () => {
     it('should fail to start Ralph when UltraQA is active', () => {
-      // Activate UltraQA first
-      const ultraqaStateFile = join(testDir, '.omc', 'state', 'ultraqa-state.json');
+      // Activate UltraQA first - write to session-scoped path since startLoop
+      // passes sessionId which makes isUltraQAActive check session path only
+      const sessionDir = join(testDir, '.omc', 'state', 'sessions', 'test-session');
+      mkdirSync(sessionDir, { recursive: true });
+      const ultraqaStateFile = join(sessionDir, 'ultraqa-state.json');
       writeFileSync(ultraqaStateFile, JSON.stringify({ active: true }));
 
       // Try to start Ralph

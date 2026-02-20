@@ -3,58 +3,36 @@ name: ralph-init
 description: Initialize a PRD (Product Requirements Document) for structured ralph-loop execution
 ---
 
-# Ralph Init Skill
+# Ralph Init
 
-[RALPH-INIT - PRD CREATION MODE]
+Initialize a PRD (Product Requirements Document) for structured ralph-loop execution. Creates a structured requirements document that Ralph can use for goal-driven iteration.
 
-## What is PRD?
-
-A PRD (Product Requirements Document) structures your task into discrete user stories for ralph-loop.
-
-## Your Task
-
-Create `.omc/prd.json` and `.omc/progress.txt` based on the task description.
-
-### prd.json Structure
-
-```json
-{
-  "project": "[Project Name]",
-  "branchName": "ralph/[feature-name]",
-  "description": "[Feature description]",
-  "userStories": [
-    {
-      "id": "US-001",
-      "title": "[Short title]",
-      "description": "As a [user], I want to [action] so that [benefit].",
-      "acceptanceCriteria": ["Criterion 1", "Typecheck passes"],
-      "priority": 1,
-      "passes": false
-    }
-  ]
-}
-```
-
-### progress.txt Structure
+## Usage
 
 ```
-# Ralph Progress Log
-Started: [ISO timestamp]
-
-## Codebase Patterns
-(No patterns discovered yet)
-
----
+/oh-my-claudecode:ralph-init "project or feature description"
 ```
 
-### Guidelines
+## Behavior
 
-1. **Right-sized stories**: Each completable in one focused session
-2. **Verifiable criteria**: Include "Typecheck passes", "Tests pass"
-3. **Independent stories**: Minimize dependencies between stories
-4. **Priority order**: Foundational work (DB, types) before UI
+1. **Gather requirements** via interactive interview or from the provided description
+2. **Create PRD** at `.omc/plans/prd-{slug}.md` with:
+   - Problem statement
+   - Goals and non-goals
+   - Acceptance criteria (testable)
+   - Technical constraints
+   - Implementation phases
+3. **Link to Ralph** so that `/oh-my-claudecode:ralph` can use the PRD as its completion criteria
 
-After creating files, report summary and suggest running `/oh-my-claudecode:ralph-loop` to start.
+## Output
 
-Task to break down:
-{{ARGUMENTS}}
+A structured PRD file saved to `.omc/plans/` that serves as the definition of done for Ralph execution.
+
+## Next Steps
+
+After creating the PRD, start execution with:
+```
+/oh-my-claudecode:ralph "implement the PRD"
+```
+
+Ralph will iterate until all acceptance criteria in the PRD are met and architect-verified.

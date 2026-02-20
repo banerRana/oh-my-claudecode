@@ -8,12 +8,12 @@
 import { existsSync, mkdirSync, writeFileSync, readFileSync, readdirSync, chmodSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-const CLAUDE_DIR = join(homedir(), '.claude');
+const CLAUDE_DIR = process.env.CLAUDE_CONFIG_DIR || join(homedir(), '.claude');
 const HUD_DIR = join(CLAUDE_DIR, 'hud');
 const SETTINGS_FILE = join(CLAUDE_DIR, 'settings.json');
 
@@ -25,7 +25,7 @@ if (!existsSync(HUD_DIR)) {
 }
 
 // 2. Create HUD wrapper script
-const hudScriptPath = join(HUD_DIR, 'omc-hud.mjs');
+const hudScriptPath = join(HUD_DIR, 'omc-hud.mjs').replace(/\\/g, '/');
 const hudScript = `#!/usr/bin/env node
 /**
  * OMC HUD - Statusline Script
@@ -35,6 +35,25 @@ const hudScript = `#!/usr/bin/env node
 import { existsSync, readdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
+
+// Semantic version comparison: returns negative if a < b, positive if a > b, 0 if equal
+function semverCompare(a, b) {
+  // Use parseInt to handle pre-release suffixes (e.g. "0-beta" -> 0)
+  const pa = a.replace(/^v/, "").split(".").map(s => parseInt(s, 10) || 0);
+  const pb = b.replace(/^v/, "").split(".").map(s => parseInt(s, 10) || 0);
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const na = pa[i] || 0;
+    const nb = pb[i] || 0;
+    if (na !== nb) return na - nb;
+  }
+  // If numeric parts equal, non-pre-release > pre-release
+  const aHasPre = /-/.test(a);
+  const bHasPre = /-/.test(b);
+  if (aHasPre && !bHasPre) return -1;
+  if (!aHasPre && bHasPre) return 1;
+  return 0;
+}
 
 async function main() {
   const home = homedir();
@@ -45,10 +64,15 @@ async function main() {
     try {
       const versions = readdirSync(pluginCacheBase);
       if (versions.length > 0) {
-        const latestVersion = versions.sort().reverse()[0];
-        const pluginPath = join(pluginCacheBase, latestVersion, "dist/hud/index.js");
-        if (existsSync(pluginPath)) {
-          await import(pluginPath);
+        // Filter to only versions with built dist/hud/index.js
+        const builtVersions = versions.filter(v => {
+          const hudPath = join(pluginCacheBase, v, "dist/hud/index.js");
+          return existsSync(hudPath);
+        });
+        if (builtVersions.length > 0) {
+          const latestBuilt = builtVersions.sort(semverCompare).reverse()[0];
+          const pluginPath = join(pluginCacheBase, latestBuilt, "dist/hud/index.js");
+          await import(pathToFileURL(pluginPath).href);
           return;
         }
       }
@@ -95,7 +119,7 @@ try {
   // Update statusLine to use new HUD path
   settings.statusLine = {
     type: 'command',
-    command: `node ${hudScriptPath}`
+    command: `node ${hudScriptPath.replace(/\\/g, "/")}`
   };
   writeFileSync(SETTINGS_FILE, JSON.stringify(settings, null, 2));
   console.log('[OMC] Configured HUD statusLine in settings.json');

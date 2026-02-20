@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { TokenTracker, resetTokenTracker } from '../../analytics/token-tracker.js';
+import { resetTokenTracker } from '../../analytics/token-tracker.js';
 
 describe('TokenTracker.getTopAgents', () => {
   beforeEach(() => {
@@ -8,18 +8,18 @@ describe('TokenTracker.getTopAgents', () => {
   });
 
   it('returns empty array when no usage recorded', async () => {
-    const tracker = new TokenTracker('test-session');
+    const tracker = resetTokenTracker('test-session');
     const result = await tracker.getTopAgents(5);
     expect(result).toEqual([]);
   });
 
   it('returns agents sorted by cost descending', async () => {
-    const tracker = new TokenTracker('test-session');
+    const tracker = resetTokenTracker('test-session');
 
     // Record usage for multiple agents
     await tracker.recordTokenUsage({
       agentName: 'executor',
-      modelName: 'claude-sonnet-4.5',
+      modelName: 'claude-sonnet-4.6',
       inputTokens: 1000,
       outputTokens: 500,
       cacheCreationTokens: 0,
@@ -28,7 +28,7 @@ describe('TokenTracker.getTopAgents', () => {
 
     await tracker.recordTokenUsage({
       agentName: 'architect',
-      modelName: 'claude-opus-4.5', // More expensive model
+      modelName: 'claude-opus-4.6', // More expensive model
       inputTokens: 2000,
       outputTokens: 1000,
       cacheCreationTokens: 0,
@@ -44,13 +44,13 @@ describe('TokenTracker.getTopAgents', () => {
   });
 
   it('respects the limit parameter', async () => {
-    const tracker = new TokenTracker('test-session');
+    const tracker = resetTokenTracker('test-session');
 
     // Record usage for 5 agents
     for (let i = 0; i < 5; i++) {
       await tracker.recordTokenUsage({
         agentName: `agent-${i}`,
-        modelName: 'claude-sonnet-4.5',
+        modelName: 'claude-sonnet-4.6',
         inputTokens: (5 - i) * 1000, // Different amounts
         outputTokens: 500,
         cacheCreationTokens: 0,
@@ -63,12 +63,12 @@ describe('TokenTracker.getTopAgents', () => {
   });
 
   it('aggregates multiple usages for same agent', async () => {
-    const tracker = new TokenTracker('test-session');
+    const tracker = resetTokenTracker('test-session');
 
     // Record multiple usages for same agent
     await tracker.recordTokenUsage({
       agentName: 'executor',
-      modelName: 'claude-sonnet-4.5',
+      modelName: 'claude-sonnet-4.6',
       inputTokens: 1000,
       outputTokens: 500,
       cacheCreationTokens: 0,
@@ -77,7 +77,7 @@ describe('TokenTracker.getTopAgents', () => {
 
     await tracker.recordTokenUsage({
       agentName: 'executor',
-      modelName: 'claude-sonnet-4.5',
+      modelName: 'claude-sonnet-4.6',
       inputTokens: 1000,
       outputTokens: 500,
       cacheCreationTokens: 0,
@@ -92,10 +92,10 @@ describe('TokenTracker.getTopAgents', () => {
   });
 
   it('uses "(main session)" for entries without agentName', async () => {
-    const tracker = new TokenTracker('test-session');
+    const tracker = resetTokenTracker('test-session');
 
     await tracker.recordTokenUsage({
-      modelName: 'claude-sonnet-4.5',
+      modelName: 'claude-sonnet-4.6',
       inputTokens: 1000,
       outputTokens: 500,
       cacheCreationTokens: 0,
@@ -108,11 +108,11 @@ describe('TokenTracker.getTopAgents', () => {
   });
 
   it('handles mixed agents with and without names', async () => {
-    const tracker = new TokenTracker('test-session');
+    const tracker = resetTokenTracker('test-session');
 
     // Main session usage
     await tracker.recordTokenUsage({
-      modelName: 'claude-sonnet-4.5',
+      modelName: 'claude-sonnet-4.6',
       inputTokens: 500,
       outputTokens: 250,
       cacheCreationTokens: 0,
@@ -122,7 +122,7 @@ describe('TokenTracker.getTopAgents', () => {
     // Named agent usage
     await tracker.recordTokenUsage({
       agentName: 'executor',
-      modelName: 'claude-sonnet-4.5',
+      modelName: 'claude-sonnet-4.6',
       inputTokens: 1000,
       outputTokens: 500,
       cacheCreationTokens: 0,
@@ -136,7 +136,7 @@ describe('TokenTracker.getTopAgents', () => {
   });
 
   it('calculates cost correctly across different models', async () => {
-    const tracker = new TokenTracker('test-session');
+    const tracker = resetTokenTracker('test-session');
 
     // Haiku (cheaper)
     await tracker.recordTokenUsage({
@@ -151,7 +151,7 @@ describe('TokenTracker.getTopAgents', () => {
     // Opus (expensive)
     await tracker.recordTokenUsage({
       agentName: 'expensive-agent',
-      modelName: 'claude-opus-4.5',
+      modelName: 'claude-opus-4.6',
       inputTokens: 1000,
       outputTokens: 500,
       cacheCreationTokens: 0,
@@ -168,12 +168,12 @@ describe('TokenTracker.getTopAgents', () => {
   });
 
   it('includes cache tokens in cost calculation', async () => {
-    const tracker = new TokenTracker('test-session');
+    const tracker = resetTokenTracker('test-session');
 
     // Usage with cache
     await tracker.recordTokenUsage({
       agentName: 'cached-agent',
-      modelName: 'claude-sonnet-4.5',
+      modelName: 'claude-sonnet-4.6',
       inputTokens: 1000,
       outputTokens: 500,
       cacheCreationTokens: 500,
@@ -183,7 +183,7 @@ describe('TokenTracker.getTopAgents', () => {
     // Usage without cache
     await tracker.recordTokenUsage({
       agentName: 'uncached-agent',
-      modelName: 'claude-sonnet-4.5',
+      modelName: 'claude-sonnet-4.6',
       inputTokens: 1000,
       outputTokens: 500,
       cacheCreationTokens: 0,
@@ -202,13 +202,13 @@ describe('TokenTracker.getTopAgents', () => {
   });
 
   it('returns agents in stable order when costs are equal', async () => {
-    const tracker = new TokenTracker('test-session');
+    const tracker = resetTokenTracker('test-session');
 
     // Record identical usage for multiple agents
     for (let i = 0; i < 3; i++) {
       await tracker.recordTokenUsage({
         agentName: `agent-${i}`,
-        modelName: 'claude-sonnet-4.5',
+        modelName: 'claude-sonnet-4.6',
         inputTokens: 1000,
         outputTokens: 500,
         cacheCreationTokens: 0,

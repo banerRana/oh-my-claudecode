@@ -8,13 +8,14 @@ describe('Builtin Skills', () => {
   });
 
   describe('createBuiltinSkills()', () => {
-    it('should return correct number of skills (37)', () => {
+    it('should return correct number of skills (42)', () => {
       const skills = createBuiltinSkills();
-      // 37 skills: analyze, autopilot, build-fix, cancel, code-review, deepinit, deepsearch, doctor, ecomode,
-      // frontend-ui-ux, git-master, help, hud, learn-about-omc, learner, local-skills-setup, mcp-setup, note,
-      // omc-setup, orchestrate, pipeline, plan, project-session-manager, ralph, ralph-init, ralplan, release, research, review,
-      // security-review, skill, swarm, tdd, ultrapilot, ultraqa, ultrawork, writer-memory
-      expect(skills).toHaveLength(37);
+      // 42 skills: analyze, autopilot, build-fix, cancel, ccg, code-review, configure-discord, configure-slack,
+      // configure-telegram, deepinit, deepsearch, omc-doctor, external-context, frontend-ui-ux, git-master,
+      // omc-help, hud, learn-about-omc, learner, mcp-setup, note, omc-setup, pipeline, plan,
+      // project-session-manager, psm, ralph, ralph-init, ralplan, release, review, sciomc, security-review,
+      // skill, swarm, tdd, team, trace, ultrapilot, ultraqa, ultrawork, writer-memory
+      expect(skills).toHaveLength(42);
     });
 
     it('should return an array of BuiltinSkill objects', () => {
@@ -68,35 +69,40 @@ describe('Builtin Skills', () => {
         'autopilot',
         'build-fix',
         'cancel',
+        'ccg',
         'code-review',
+        'configure-discord',
+        'configure-slack',
+        'configure-telegram',
         'deepinit',
         'deepsearch',
-        'doctor',
-        'ecomode',
+        'omc-doctor',
+        'external-context',
         'frontend-ui-ux',
         'git-master',
-        'help',
+        'omc-help',
         'hud',
         'learn-about-omc',
         'learner',
-        'local-skills-setup',
         'mcp-setup',
         'note',
         'omc-setup',
-        'orchestrate',
         'pipeline',
-        'plan',
+        'omc-plan',
         'project-session-manager',
+        'psm',
         'ralph',
         'ralph-init',
         'ralplan',
         'release',
-        'research',
-        'review',
-        'security-review',
+        'omc-review',
+        'sciomc',
+        'omc-security-review',
         'skill',
         'swarm',
         'tdd',
+        'team',
+        'trace',
         'ultrapilot',
         'ultraqa',
         'ultrawork',
@@ -118,15 +124,15 @@ describe('Builtin Skills', () => {
 
   describe('getBuiltinSkill()', () => {
     it('should retrieve a skill by name', () => {
-      const skill = getBuiltinSkill('orchestrate');
+      const skill = getBuiltinSkill('autopilot');
       expect(skill).toBeDefined();
-      expect(skill?.name).toBe('orchestrate');
+      expect(skill?.name).toBe('autopilot');
     });
 
     it('should be case-insensitive', () => {
-      const skillLower = getBuiltinSkill('orchestrate');
-      const skillUpper = getBuiltinSkill('ORCHESTRATE');
-      const skillMixed = getBuiltinSkill('OrChEsTrAtE');
+      const skillLower = getBuiltinSkill('autopilot');
+      const skillUpper = getBuiltinSkill('AUTOPILOT');
+      const skillMixed = getBuiltinSkill('AuToPiLoT');
 
       expect(skillLower).toBeDefined();
       expect(skillUpper).toBeDefined();
@@ -144,26 +150,27 @@ describe('Builtin Skills', () => {
   describe('listBuiltinSkillNames()', () => {
     it('should return all skill names', () => {
       const names = listBuiltinSkillNames();
-      expect(names).toHaveLength(37);
-      expect(names).toContain('orchestrate');
+
+      expect(names).toHaveLength(42);
       expect(names).toContain('autopilot');
       expect(names).toContain('cancel');
+      expect(names).toContain('ccg');
+      expect(names).toContain('configure-discord');
+      expect(names).toContain('configure-slack');
+      expect(names).toContain('configure-telegram');
       expect(names).toContain('ralph');
-      expect(names).toContain('ralph-init');
       expect(names).toContain('frontend-ui-ux');
       expect(names).toContain('git-master');
       expect(names).toContain('ultrawork');
       expect(names).toContain('analyze');
       expect(names).toContain('deepsearch');
-      expect(names).toContain('plan');
-      expect(names).toContain('review');
+      expect(names).toContain('omc-plan');
       expect(names).toContain('deepinit');
       expect(names).toContain('release');
-      expect(names).toContain('doctor');
-      expect(names).toContain('help');
+      expect(names).toContain('omc-doctor');
+      expect(names).toContain('omc-help');
       expect(names).toContain('hud');
       expect(names).toContain('note');
-      expect(names).toContain('learn-about-omc');
       expect(names).toContain('omc-setup');
     });
 

@@ -1,40 +1,36 @@
 ---
 name: ralplan
-description: Iterative planning with Planner, Architect, and Critic until consensus
+description: Alias for /plan --consensus
 ---
 
-# Ralplan Command
+# Ralplan (Consensus Planning Alias)
 
-**This is an alias for `/plan --consensus`**
-
-Ralplan orchestrates three specialized agents—Planner, Architect, and Critic—in an iterative loop until consensus is reached on a comprehensive work plan.
+Ralplan is a shorthand alias for `/oh-my-claudecode:plan --consensus`. It triggers iterative planning with Planner, Architect, and Critic agents until consensus is reached.
 
 ## Usage
 
 ```
-/oh-my-claudecode:ralplan [task]
+/oh-my-claudecode:ralplan "task description"
 ```
 
-## What It Does
+## Behavior
 
-Invokes the plan skill with --consensus mode, which:
-1. Creates initial plan with Planner agent
-2. Consults Architect for architectural questions
-3. Reviews with Critic agent
-4. Iterates until Critic approves (max 5 iterations)
-
-## Implementation
-
-When this skill is invoked, immediately invoke the plan skill with consensus mode:
+This skill invokes the Plan skill in consensus mode:
 
 ```
-Invoke Skill: plan --consensus {{ARGUMENTS}}
+/oh-my-claudecode:plan --consensus <arguments>
 ```
 
-Pass all arguments to the plan skill. The plan skill handles all consensus logic, state management, and iteration.
+The consensus workflow:
+1. **Planner** creates initial plan
+2. **User feedback**: **MUST** use `AskUserQuestion` to present the draft plan before review (Proceed to review / Request changes / Skip review)
+3. **Architect** reviews for architectural soundness — **await completion before step 4**
+4. **Critic** evaluates against quality criteria — run only after step 3 completes
+5. If Critic rejects: iterate with feedback (max 5 iterations)
+6. On Critic approval: **MUST** use `AskUserQuestion` to present the plan with approval options
+7. User chooses: Approve, Request changes, or Reject
+8. On approval: **MUST** invoke `Skill("oh-my-claudecode:ralph")` for execution -- never implement directly
 
-## See Also
+> **Important:** Steps 3 and 4 MUST run sequentially. Do NOT issue both `ask_codex` calls in the same parallel batch — if one hits a 429 rate-limit error, Claude Code will cancel the sibling call ("Sibling tool call errored"), causing the entire review to fail. On a rate-limit error, retry once after 5–10 s; on second failure fall back to the equivalent Claude agent.
 
-- `/plan` - Base planning skill with all modes
-- `/plan --consensus` - Direct invocation of consensus mode
-- `/cancel` - Cancel active planning session
+Follow the Plan skill's full documentation for consensus mode details.

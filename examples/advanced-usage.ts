@@ -25,7 +25,7 @@ async function main() {
     config: {
       agents: {
         // Use a faster model for the orchestrator in dev
-        sisyphus: { model: 'claude-sonnet-4-5-20250514' },
+        sisyphus: { model: 'claude-sonnet-4-6-20260217' },
         // Disable some agents
         frontendEngineer: { enabled: false },
         documentWriter: { enabled: false }
@@ -114,7 +114,7 @@ Always:
 `,
     config: {
       agents: {
-        sisyphus: { model: 'claude-opus-4-5-20251101' }
+        sisyphus: { model: 'claude-opus-4-6-20260205' }
       },
       features: {
         parallelExecution: true,

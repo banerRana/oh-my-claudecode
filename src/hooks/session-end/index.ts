@@ -1,5 +1,9 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import * as readline from 'readline';
+import { triggerStopCallbacks } from './callbacks.js';
+import { notify } from '../../notifications/index.js';
+import { cleanupBridgeSessions } from '../../tools/python-repl/bridge-manager.js';
 
 export interface SessionEndInput {
   session_id: string;
@@ -64,7 +68,6 @@ function getModesUsed(directory: string): string[] {
     { file: 'ultrapilot-state.json', mode: 'ultrapilot' },
     { file: 'ralph-state.json', mode: 'ralph' },
     { file: 'ultrawork-state.json', mode: 'ultrawork' },
-    { file: 'ecomode-state.json', mode: 'ecomode' },
     { file: 'swarm-state.json', mode: 'swarm' },
     { file: 'pipeline-state.json', mode: 'pipeline' },
   ];
@@ -80,9 +83,21 @@ function getModesUsed(directory: string): string[] {
 }
 
 /**
- * Get session start time from state files
+ * Get session start time from state files.
+ *
+ * When sessionId is provided, only state files whose session_id matches are
+ * considered.  State files that carry a *different* session_id are treated as
+ * stale leftovers and skipped — this is the fix for issue #573 where stale
+ * state files caused grossly overreported session durations.
+ *
+ * Legacy state files (no session_id field) are used as a fallback so that
+ * older state formats still work.
+ *
+ * When multiple files match, the earliest started_at is returned so that
+ * duration reflects the full session span (e.g. autopilot started before
+ * ultrawork).
  */
-function getSessionStartTime(directory: string): string | undefined {
+export function getSessionStartTime(directory: string, sessionId?: string): string | undefined {
   const stateDir = path.join(directory, '.omc', 'state');
 
   if (!fs.existsSync(stateDir)) {
@@ -91,21 +106,46 @@ function getSessionStartTime(directory: string): string | undefined {
 
   const stateFiles = fs.readdirSync(stateDir).filter(f => f.endsWith('.json'));
 
+  let matchedStartTime: string | undefined;
+  let matchedEpoch = Infinity;
+  let legacyStartTime: string | undefined;
+  let legacyEpoch = Infinity;
+
   for (const file of stateFiles) {
     try {
       const statePath = path.join(stateDir, file);
       const content = fs.readFileSync(statePath, 'utf-8');
       const state = JSON.parse(content);
 
-      if (state.started_at) {
-        return state.started_at;
+      if (!state.started_at) {
+        continue;
       }
+
+      const ts = Date.parse(state.started_at);
+      if (!Number.isFinite(ts)) {
+        continue; // skip invalid / malformed timestamps
+      }
+
+      if (sessionId && state.session_id === sessionId) {
+        // State belongs to the current session — prefer earliest
+        if (ts < matchedEpoch) {
+          matchedEpoch = ts;
+          matchedStartTime = state.started_at;
+        }
+      } else if (!state.session_id) {
+        // Legacy state without session_id — fallback only
+        if (ts < legacyEpoch) {
+          legacyEpoch = ts;
+          legacyStartTime = state.started_at;
+        }
+      }
+      // else: state has a different session_id — stale, skip
     } catch (error) {
       continue;
     }
   }
 
-  return undefined;
+  return matchedStartTime ?? legacyStartTime;
 }
 
 /**
@@ -113,7 +153,7 @@ function getSessionStartTime(directory: string): string | undefined {
  */
 export function recordSessionMetrics(directory: string, input: SessionEndInput): SessionMetrics {
   const endedAt = new Date().toISOString();
-  const startedAt = getSessionStartTime(directory);
+  const startedAt = getSessionStartTime(directory, input.session_id);
   const { spawned, completed } = getAgentCounts(directory);
   const modesUsed = getModesUsed(directory);
 
@@ -219,13 +259,74 @@ const MODE_STATE_FILES = [
   { file: 'ultrapilot-state.json', mode: 'ultrapilot' },
   { file: 'ralph-state.json', mode: 'ralph' },
   { file: 'ultrawork-state.json', mode: 'ultrawork' },
-  { file: 'ecomode-state.json', mode: 'ecomode' },
   { file: 'ultraqa-state.json', mode: 'ultraqa' },
   { file: 'pipeline-state.json', mode: 'pipeline' },
   // Swarm uses marker file + SQLite
   { file: 'swarm-active.marker', mode: 'swarm' },
   { file: 'swarm-summary.json', mode: 'swarm' },
 ];
+
+const PYTHON_REPL_TOOL_NAMES = new Set(['python_repl', 'mcp__t__python_repl']);
+
+/**
+ * Extract python_repl research session IDs from transcript JSONL.
+ * These sessions are terminated on SessionEnd to prevent bridge leaks.
+ */
+export async function extractPythonReplSessionIdsFromTranscript(transcriptPath: string): Promise<string[]> {
+  if (!transcriptPath || !fs.existsSync(transcriptPath)) {
+    return [];
+  }
+
+  const sessionIds = new Set<string>();
+  const stream = fs.createReadStream(transcriptPath, { encoding: 'utf-8' });
+  const rl = readline.createInterface({
+    input: stream,
+    crlfDelay: Infinity,
+  });
+
+  try {
+    for await (const line of rl) {
+      if (!line.trim()) {
+        continue;
+      }
+
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(line);
+      } catch {
+        continue;
+      }
+
+      const entry = parsed as { message?: { content?: unknown[] } };
+      const contentBlocks = entry.message?.content;
+      if (!Array.isArray(contentBlocks)) {
+        continue;
+      }
+
+      for (const block of contentBlocks) {
+        const toolUse = block as {
+          type?: string;
+          name?: string;
+          input?: { researchSessionID?: unknown };
+        };
+
+        if (toolUse.type !== 'tool_use' || !toolUse.name || !PYTHON_REPL_TOOL_NAMES.has(toolUse.name)) {
+          continue;
+        }
+
+        const sessionId = toolUse.input?.researchSessionID;
+        if (typeof sessionId === 'string' && sessionId.trim().length > 0) {
+          sessionIds.add(sessionId.trim());
+        }
+      }
+    }
+  } finally {
+    rl.close();
+    stream.destroy();
+  }
+
+  return [...sessionIds];
+}
 
 /**
  * Clean up mode state files on session end.
@@ -234,9 +335,11 @@ const MODE_STATE_FILES = [
  * in subsequent sessions. When a session ends normally, all active modes
  * should be considered terminated.
  *
+ * @param directory - The project directory
+ * @param sessionId - Optional session ID to match. Only cleans states belonging to this session.
  * @returns Object with counts of files removed and modes cleaned
  */
-export function cleanupModeStates(directory: string): { filesRemoved: number; modesCleaned: string[] } {
+export function cleanupModeStates(directory: string, sessionId?: string): { filesRemoved: number; modesCleaned: string[] } {
   let filesRemoved = 0;
   const modesCleaned: string[] = [];
   const stateDir = path.join(directory, '.omc', 'state');
@@ -256,12 +359,19 @@ export function cleanupModeStates(directory: string): { filesRemoved: number; mo
           const content = fs.readFileSync(localPath, 'utf-8');
           const state = JSON.parse(content);
 
-          // Only clean if marked as active (prevents removing historical/completed states)
+          // Only clean if marked as active AND belongs to this session
+          // (prevents removing other concurrent sessions' states)
           if (state.active === true) {
-            fs.unlinkSync(localPath);
-            filesRemoved++;
-            if (!modesCleaned.includes(mode)) {
-              modesCleaned.push(mode);
+            // If sessionId is provided, only clean matching states
+            // If state has no session_id, it's legacy - clean it
+            // If state.session_id matches our sessionId, clean it
+            const stateSessionId = state.session_id as string | undefined;
+            if (!sessionId || !stateSessionId || stateSessionId === sessionId) {
+              fs.unlinkSync(localPath);
+              filesRemoved++;
+              if (!modesCleaned.includes(mode)) {
+                modesCleaned.push(mode);
+              }
             }
           }
         } else {
@@ -305,7 +415,7 @@ export function exportSessionSummary(directory: string, metrics: SessionMetrics)
 /**
  * Process session end
  */
-export function processSessionEnd(input: SessionEndInput): HookOutput {
+export async function processSessionEnd(input: SessionEndInput): Promise<HookOutput> {
   // Record and export session metrics to disk
   const metrics = recordSessionMetrics(input.cwd, input);
   exportSessionSummary(input.cwd, metrics);
@@ -315,7 +425,59 @@ export function processSessionEnd(input: SessionEndInput): HookOutput {
 
   // Clean up mode state files to prevent stale state issues
   // This ensures the stop hook won't malfunction in subsequent sessions
-  cleanupModeStates(input.cwd);
+  // Pass session_id to only clean up this session's states
+  cleanupModeStates(input.cwd, input.session_id);
+
+  // Clean up Python REPL bridge sessions used in this transcript (#641).
+  // Best-effort only: session end should not fail because cleanup fails.
+  try {
+    const pythonSessionIds = await extractPythonReplSessionIdsFromTranscript(input.transcript_path);
+    if (pythonSessionIds.length > 0) {
+      await cleanupBridgeSessions(pythonSessionIds);
+    }
+  } catch {
+    // Ignore cleanup errors
+  }
+
+  // Trigger stop hook callbacks (#395)
+  await triggerStopCallbacks(metrics, {
+    session_id: input.session_id,
+    cwd: input.cwd,
+  });
+
+  // Trigger new notification system (in addition to legacy callbacks)
+  try {
+    await notify('session-end', {
+      sessionId: input.session_id,
+      projectPath: input.cwd,
+      durationMs: metrics.duration_ms,
+      agentsSpawned: metrics.agents_spawned,
+      agentsCompleted: metrics.agents_completed,
+      modesUsed: metrics.modes_used,
+      reason: metrics.reason,
+      timestamp: metrics.ended_at,
+      profileName: process.env.OMC_NOTIFY_PROFILE,
+    });
+  } catch {
+    // Notification failures should never block session end
+  }
+
+  // Clean up reply session registry and stop daemon if no active sessions remain
+  try {
+    const { removeSession, loadAllMappings } = await import('../../notifications/session-registry.js');
+    const { stopReplyListener } = await import('../../notifications/reply-listener.js');
+
+    // Remove this session's message mappings
+    removeSession(input.session_id);
+
+    // Stop daemon if registry is now empty (no other active sessions)
+    const remainingMappings = loadAllMappings();
+    if (remainingMappings.length === 0) {
+      await stopReplyListener();
+    }
+  } catch {
+    // Reply listener cleanup failures should never block session end
+  }
 
   // Return simple response - metrics are persisted to .omc/sessions/
   return { continue: true };
