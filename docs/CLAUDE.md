@@ -81,7 +81,7 @@ Domain Specialists:
 Coordination:
 - `critic` (opus): plan/design critical challenge
 
-Deprecated aliases (backward compatibility only): `researcher` -> `document-specialist`, `tdd-guide` -> `test-engineer`, `api-reviewer` -> `code-reviewer`, `performance-reviewer` -> `quality-reviewer`, `dependency-expert` -> `document-specialist`.
+Deprecated aliases (backward compatibility only): `researcher` -> `document-specialist`, `tdd-guide` -> `test-engineer`, `api-reviewer` -> `code-reviewer`, `performance-reviewer` -> `quality-reviewer`, `dependency-expert` -> `document-specialist`, `quality-strategist` -> `quality-reviewer`, `vision` -> `document-specialist`.
 
 Compatibility aliases may still be normalized during routing, but canonical runtime registry keys are defined in `src/agents/definitions.ts`.
 </agent_catalog>
