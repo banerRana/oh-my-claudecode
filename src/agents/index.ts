@@ -43,6 +43,7 @@ export { documentSpecialistAgent as researcherAgent } from './document-specialis
 
 // Reformed agents (Build/Analysis Lane)
 export {
+  deepExecutorAgent,
   debuggerAgent,
   verifierAgent
 } from './definitions.js';

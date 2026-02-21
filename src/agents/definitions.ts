@@ -12,6 +12,7 @@ import type { AgentConfig, ModelType } from '../shared/types.js';
 import { loadAgentPrompt, parseDisallowedTools } from './utils.js';
 
 // Re-export base agents from individual files (rebranded names)
+export { deepExecutorAgent } from './deep-executor.js';
 export { architectAgent } from './architect.js';
 export { designerAgent } from './designer.js';
 export { writerAgent } from './writer.js';
@@ -30,6 +31,7 @@ export { documentSpecialistAgent } from './document-specialist.js';
 export { documentSpecialistAgent as researcherAgent } from './document-specialist.js';
 
 // Import base agents for use in getAgentDefinitions
+import { deepExecutorAgent } from './deep-executor.js';
 import { architectAgent } from './architect.js';
 import { designerAgent } from './designer.js';
 import { writerAgent } from './writer.js';
@@ -224,6 +226,7 @@ export function getAgentDefinitions(overrides?: Partial<Record<string, Partial<A
     // ============================================================
     // DOMAIN SPECIALISTS
     // ============================================================
+    'deep-executor': deepExecutorAgent,
     'test-engineer': testEngineerAgent,
     'build-fixer': buildFixerAgent,
     designer: designerAgent,
