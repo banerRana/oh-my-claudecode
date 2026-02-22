@@ -152,12 +152,13 @@ function runClaudeInsideTmux(cwd: string, args: string[], hudCmd: string): void 
   try {
     execFileSync('claude', args, { cwd, stdio: 'inherit' });
   } catch (error) {
-    const err = error as NodeJS.ErrnoException;
+    const err = error as NodeJS.ErrnoException & { status?: number | null };
     if (err.code === 'ENOENT') {
       console.error('[omc] Error: claude CLI not found in PATH.');
       process.exit(1);
     }
-    // Normal exit (non-zero status codes throw in execFileSync) — ignore
+    // Propagate Claude's exit code so omc does not swallow failures
+    process.exit(typeof err.status === 'number' ? err.status : 1);
   } finally {
     // Cleanup HUD pane on exit
     if (hudPaneId) {
@@ -213,12 +214,13 @@ function runClaudeDirect(cwd: string, args: string[]): void {
   try {
     execFileSync('claude', args, { cwd, stdio: 'inherit' });
   } catch (error) {
-    const err = error as NodeJS.ErrnoException;
+    const err = error as NodeJS.ErrnoException & { status?: number | null };
     if (err.code === 'ENOENT') {
       console.error('[omc] Error: claude CLI not found in PATH.');
       process.exit(1);
     }
-    // Normal exit (non-zero status codes throw in execFileSync) — ignore
+    // Propagate Claude's exit code so omc does not swallow failures
+    process.exit(typeof err.status === 'number' ? err.status : 1);
   }
 }
 
