@@ -19,6 +19,7 @@ import {
 } from './hooks.js';
 import { getRuntimePackageVersion } from '../lib/version.js';
 import { getConfigDir } from '../utils/config-dir.js';
+import { resolveNodeBinary } from '../utils/resolve-node.js';
 
 /** Claude Code configuration directory */
 export const CLAUDE_CONFIG_DIR = getConfigDir();
@@ -724,16 +725,20 @@ export function install(options: InstallOptions = {}): InstallResult {
 
       // 2. Configure statusLine (always, even in plugin mode)
       if (hudScriptPath) {
+        // Use absolute node path so nvm/fnm users don't get "node not found"
+        // errors when Claude Code invokes the statusLine in a non-interactive shell.
+        const nodeBin = resolveNodeBinary();
+        const statusLineCommand = nodeBin + ' ' + hudScriptPath.replace(/\\/g, '/');
         if (!existingSettings.statusLine) {
           existingSettings.statusLine = {
             type: 'command',
-            command: 'node ' + hudScriptPath.replace(/\\/g, '/')
+            command: statusLineCommand
           };
           log('  Configured statusLine');
         } else if (options.force && isOmcStatusLine(existingSettings.statusLine)) {
           existingSettings.statusLine = {
             type: 'command',
-            command: 'node ' + hudScriptPath.replace(/\\/g, '/')
+            command: statusLineCommand
           };
           log('  Updated statusLine (--force)');
         } else if (options.force) {
@@ -743,7 +748,26 @@ export function install(options: InstallOptions = {}): InstallResult {
         }
       }
 
-      // 3. Single atomic write
+      // 3. Persist the detected node binary path into .omc-config.json so that
+      //    find-node.sh (used in hooks/hooks.json) can locate it at hook runtime
+      //    even when node is not on PATH (nvm/fnm users, issue #892).
+      try {
+        const configPath = join(CLAUDE_CONFIG_DIR, '.omc-config.json');
+        let omcConfig: Record<string, unknown> = {};
+        if (existsSync(configPath)) {
+          omcConfig = JSON.parse(readFileSync(configPath, 'utf-8'));
+        }
+        const detectedNode = resolveNodeBinary();
+        if (detectedNode !== 'node') {
+          omcConfig.nodeBinary = detectedNode;
+          writeFileSync(configPath, JSON.stringify(omcConfig, null, 2));
+          log(`  Saved node binary path to .omc-config.json: ${detectedNode}`);
+        }
+      } catch {
+        log('  Warning: Could not save node binary path (non-fatal)');
+      }
+
+      // 4. Single atomic write
       writeFileSync(SETTINGS_FILE, JSON.stringify(existingSettings, null, 2));
       log('  settings.json updated');
     } catch (_e) {
