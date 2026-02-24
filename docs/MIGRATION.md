@@ -6,11 +6,36 @@ This guide covers all migration paths for oh-my-claudecode. Find your current ve
 
 ## Table of Contents
 
+- [Unreleased: Team MCP timeoutSeconds Removal](#unreleased-team-mcp-timeoutseconds-removal)
 - [v3.5.3 → v3.5.5: Test Fixes & Cleanup](#v353--v355-test-fixes--cleanup)
 - [v3.5.2 → v3.5.3: Skill Consolidation](#v352--v353-skill-consolidation)
 - [v2.x → v3.0: Package Rename & Auto-Activation](#v2x--v30-package-rename--auto-activation)
 - [v3.0 → v3.1: Notepad Wisdom & Enhanced Features](#v30--v31-notepad-wisdom--enhanced-features)
 - [v3.x → v4.0: Major Architecture Overhaul](#v3x--v40-major-architecture-overhaul)
+
+---
+
+## Unreleased: Team MCP timeoutSeconds Removal
+
+### TL;DR
+
+`omc_run_team_start` no longer supports `timeoutSeconds`. Team wait timeouts are now strictly controlled by `omc_run_team_wait.timeout_ms`, and timed-out waits never kill worker panes.
+
+### What Changed
+
+- Removed runtime timeout support from team runtime startup (`timeoutSeconds`).
+- `omc_run_team_wait.timeout_ms` still only limits the blocking wait call.
+- Worker-pane termination is explicit via `omc_run_team_cleanup`.
+
+### Migration Steps
+
+1. Remove `timeoutSeconds` from all `omc_run_team_start` calls.
+2. Use `omc_run_team_wait` repeatedly (or with a larger `timeout_ms`) to keep waiting.
+3. Call `omc_run_team_cleanup` only when you intentionally want to stop worker panes.
+
+### Breaking Change
+
+Passing `timeoutSeconds` now returns an API error from `omc_run_team_start`.
 
 ---
 
