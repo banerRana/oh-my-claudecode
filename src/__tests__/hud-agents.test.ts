@@ -1,5 +1,5 @@
 /**
- * Sisyphus HUD - Agents Element Tests
+ * OMC HUD - Agents Element Tests
  *
  * Tests for agent visualization with different formats.
  */
@@ -10,8 +10,6 @@ import {
   renderAgentsCoded,
   renderAgentsCodedWithDuration,
   renderAgentsDetailed,
-  renderAgentsWithDescriptions,
-  renderAgentsDescOnly,
   renderAgentsByFormat,
   renderAgentsMultiLine,
 } from '../hud/elements/agents.js';
@@ -263,23 +261,49 @@ describe('Agents Element', () => {
 
   describe('Agent type codes', () => {
     const testCases = [
+      // Build/Analysis Lane
       { type: 'architect', model: 'opus', expected: 'A' },
-      { type: 'architect-low', model: 'haiku', expected: 'a' },
-      { type: 'architect-medium', model: 'sonnet', expected: 'a' },
       { type: 'explore', model: 'haiku', expected: 'e' },
-      { type: 'explore-medium', model: 'sonnet', expected: 'e' },
       { type: 'executor', model: 'sonnet', expected: 'x' },
-      { type: 'executor-low', model: 'haiku', expected: 'x' },
-      { type: 'executor-high', model: 'opus', expected: 'X' },
+      { type: 'deep-executor', model: 'opus', expected: 'X' },
+      { type: 'debugger', model: 'sonnet', expected: 'g' },
+      { type: 'verifier', model: 'sonnet', expected: 'v' },
+      // Review Lane
+      { type: 'style-reviewer', model: 'haiku', expected: 'y' },
+      { type: 'quality-reviewer', model: 'sonnet', expected: 'qr' },
+      { type: 'api-reviewer', model: 'sonnet', expected: 'i' },
+      { type: 'security-reviewer', model: 'sonnet', expected: 'k' },
+      { type: 'performance-reviewer', model: 'sonnet', expected: 'o' },
+      { type: 'code-reviewer', model: 'opus', expected: 'R' },
+      // Domain Specialists
+      { type: 'dependency-expert', model: 'sonnet', expected: 'l' },
+      { type: 'test-engineer', model: 'sonnet', expected: 't' },
+      { type: 'build-fixer', model: 'sonnet', expected: 'b' },
       { type: 'designer', model: 'sonnet', expected: 'd' },
-      { type: 'designer-high', model: 'opus', expected: 'D' },
-      { type: 'researcher', model: 'sonnet', expected: 'r' },
       { type: 'writer', model: 'haiku', expected: 'w' },
-      { type: 'planner', model: 'opus', expected: 'P' },
+      { type: 'qa-tester', model: 'sonnet', expected: 'q' },
+      { type: 'scientist', model: 'sonnet', expected: 's' },
+      { type: 'git-master', model: 'sonnet', expected: 'm' },
+      // Product Lane
+      { type: 'product-manager', model: 'sonnet', expected: 'pm' },
+      { type: 'ux-researcher', model: 'sonnet', expected: 'u' },
+      { type: 'information-architect', model: 'sonnet', expected: 'ia' },
+      { type: 'product-analyst', model: 'sonnet', expected: 'a' },
+      { type: 'quality-strategist', model: 'sonnet', expected: 'qs' },
+      // Coordination
       { type: 'critic', model: 'opus', expected: 'C' },
       { type: 'analyst', model: 'opus', expected: 'T' },
-      { type: 'qa-tester', model: 'sonnet', expected: 'q' },
+      { type: 'planner', model: 'opus', expected: 'P' },
       { type: 'vision', model: 'sonnet', expected: 'v' },
+      // Multi-char codes with opus tier (first char uppercase)
+      { type: 'quality-reviewer', model: 'opus', expected: 'Qr' },
+      { type: 'quality-strategist', model: 'opus', expected: 'Qs' },
+      { type: 'product-manager', model: 'opus', expected: 'Pm' },
+      { type: 'information-architect', model: 'opus', expected: 'Ia' },
+      // Domain Specialists
+      { type: 'document-specialist', model: 'sonnet', expected: 'd' },
+      // Backward Compatibility
+      { type: 'researcher', model: 'sonnet', expected: 'r' },
     ];
 
     testCases.forEach(({ type, model, expected }) => {
@@ -388,7 +412,7 @@ describe('Agents Element', () => {
         createAgent('oh-my-claudecode:architect', 'opus'),
         createAgent('oh-my-claudecode:explore', 'haiku'),
         createAgent('oh-my-claudecode:executor', 'sonnet'),
-        createAgent('oh-my-claudecode:researcher', 'haiku'),
+        createAgent('oh-my-claudecode:document-specialist', 'haiku'),
       ];
       const result = renderAgentsMultiLine(agents, 2);
       // 2 agents + 1 overflow indicator

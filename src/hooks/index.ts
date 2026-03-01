@@ -1,5 +1,5 @@
 /**
- * Hooks Module for Oh-My-Claude-Sisyphus
+ * Hooks Module for Oh-My-ClaudeCode
  *
  * This module provides the TypeScript bridge for Claude Code's native shell hook system.
  * Shell scripts call these TypeScript functions for complex logic processing.
@@ -176,7 +176,7 @@ export {
 
 export {
   // OMC Orchestrator
-  createSisyphusOrchestratorHook,
+  createOmcOrchestratorHook,
   isAllowedPath,
   isWriteEditTool,
   getGitDiffStats,
@@ -312,6 +312,8 @@ export {
   analyzeContextUsage,
   getSessionTokenEstimate,
   resetSessionTokenEstimate,
+  clearRapidFireDebounce,
+  RAPID_FIRE_DEBOUNCE_MS,
   DEFAULT_THRESHOLD as PREEMPTIVE_DEFAULT_THRESHOLD,
   CRITICAL_THRESHOLD,
   COMPACTION_COOLDOWN_MS,
@@ -339,7 +341,7 @@ export {
 } from './background-notification/index.js';
 
 export {
-  // Directory README Injector
+  // Directory README / AGENTS.md Injector
   createDirectoryReadmeInjectorHook,
   getReadmesForPath,
   loadInjectedPaths,
@@ -347,6 +349,8 @@ export {
   clearInjectedPaths,
   README_INJECTOR_STORAGE,
   README_FILENAME,
+  AGENTS_FILENAME,
+  CONTEXT_FILENAMES,
   TRACKED_TOOLS as README_TRACKED_TOOLS,
   type InjectedPathsData
 } from './directory-readme-injector/index.js';
@@ -455,6 +459,7 @@ export {
   validateCommitMessage,
   runTypeCheck,
   runTests,
+  runLint,
   runPreCommitChecks,
   getPreCommitReminderMessage,
   getAutoFormatMessage,
@@ -573,6 +578,7 @@ export {
   writeAutopilotState,
   clearAutopilotState,
   isAutopilotActive,
+  getAutopilotStateAge,
   initAutopilot,
   transitionPhase,
   incrementAgentCount,
@@ -612,6 +618,7 @@ export {
   canResumeAutopilot,
   resumeAutopilot,
   formatCancelMessage,
+  STALE_STATE_MAX_AGE_MS,
   DEFAULT_CONFIG,
   type AutopilotPhase,
   type AutopilotState,
@@ -691,41 +698,6 @@ export {
 } from './mode-registry/index.js';
 
 export {
-  // Swarm Coordination
-  startSwarm,
-  stopSwarm,
-  getSwarmStatus,
-  getSwarmStats,
-  claimTask,
-  releaseTask,
-  completeTask,
-  failTask,
-  heartbeat,
-  cleanupStaleClaims,
-  hasPendingWork,
-  isSwarmComplete,
-  getActiveAgents,
-  getAllTasks,
-  getTasksWithStatus,
-  getTaskById,
-  getAgentTasks,
-  getAllHeartbeats,
-  retryTask,
-  isSwarmReady,
-  connectToSwarm,
-  disconnectFromSwarm,
-  isSwarmActive,
-  cancelSwarm,
-  DEFAULT_SWARM_CONFIG,
-  type SwarmTask,
-  type SwarmState,
-  type SwarmConfig,
-  type SwarmStats,
-  type ClaimResult,
-  type AgentHeartbeat
-} from './swarm/index.js';
-
-export {
   // Setup Hook
   ensureDirectoryStructure,
   validateConfigFiles,
@@ -733,13 +705,24 @@ export {
   processSetupInit,
   pruneOldStateFiles,
   cleanupOrphanedState,
-  vacuumSwarmDb,
   processSetupMaintenance,
   processSetup,
   type SetupInput,
   type SetupResult,
   type HookOutput as SetupHookOutput
 } from './setup/index.js';
+
+export {
+  // Beads Context
+  getBeadsInstructions,
+  getBeadsContextConfig,
+  registerBeadsContext,
+  clearBeadsContext,
+  BEADS_INSTRUCTIONS,
+  BEADS_RUST_INSTRUCTIONS,
+  type TaskTool,
+  type BeadsContextConfig
+} from './beads-context/index.js';
 
 export {
   // Subagent Tracker Hook
@@ -772,6 +755,8 @@ export {
   saveModeSummary,
   createCompactCheckpoint,
   formatCompactSummary as formatPreCompactSummary,
+  isCompactionInProgress,
+  getCompactionQueueDepth,
   type PreCompactInput,
   type CompactCheckpoint,
   type HookOutput as PreCompactHookOutput
@@ -798,4 +783,81 @@ export {
   type SessionMetrics,
   type HookOutput as SessionEndHookOutput
 } from './session-end/index.js';
+
+export {
+  // Project Memory Hook
+  registerProjectMemoryContext,
+  clearProjectMemorySession,
+  rescanProjectEnvironment,
+  loadProjectMemory,
+  saveProjectMemory,
+  detectProjectEnvironment,
+  formatContextSummary,
+  formatFullContext,
+  learnFromToolOutput,
+  addCustomNote,
+  processPreCompact as processProjectMemoryPreCompact,
+  mapDirectoryStructure,
+  updateDirectoryAccess,
+  trackAccess,
+  getTopHotPaths,
+  decayHotPaths,
+  detectDirectivesFromMessage,
+  addDirective,
+  formatDirectivesForContext,
+  type ProjectMemory,
+  type TechStack,
+  type BuildInfo,
+  type CodeConventions,
+  type ProjectStructure,
+  type LanguageDetection,
+  type FrameworkDetection,
+  type GitBranchPattern,
+  type CustomNote,
+  type DirectoryInfo,
+  type HotPath,
+  type UserDirective
+} from './project-memory/index.js';
+
+export {
+  // Flow Tracer (Agent Flow Trace Recording)
+  recordHookFire,
+  recordHookResult,
+  recordKeywordDetected,
+  recordSkillActivated,
+  recordSkillInvoked,
+  recordModeChange,
+} from './subagent-tracker/flow-tracer.js';
+
+export {
+  // Codebase Map Generator (issue #804)
+  generateCodebaseMap,
+  buildTree,
+  renderTree,
+  shouldSkipEntry,
+  extractPackageMetadata,
+  type CodebaseMapOptions,
+  type CodebaseMapResult,
+} from './codebase-map.js';
+
+export {
+  // Agents Overlay - startup context injection (issue #804)
+  buildAgentsOverlay,
+  type AgentsOverlayResult,
+} from './agents-overlay.js';
+
+export {
+  // Code Simplifier Stop Hook
+  processCodeSimplifier,
+  isCodeSimplifierEnabled,
+  getModifiedFiles,
+  readOmcConfig,
+  isAlreadyTriggered,
+  writeTriggerMarker,
+  clearTriggerMarker,
+  buildSimplifierMessage,
+  TRIGGER_MARKER_FILENAME,
+  type CodeSimplifierConfig,
+  type CodeSimplifierHookResult,
+} from './code-simplifier/index.js';
 

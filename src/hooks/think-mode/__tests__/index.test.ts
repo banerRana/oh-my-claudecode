@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, afterEach } from 'vitest';
 import {
   // Detector functions
   removeCodeBlocks,
@@ -22,7 +22,7 @@ import {
   shouldActivateThinkMode,
   shouldActivateUltrathink,
 } from '../index.js';
-import type { ThinkModeState, ThinkModeInput } from '../types.js';
+import type { ThinkModeInput } from '../types.js';
 
 describe('think-mode', () => {
   // Clean up state after each test
@@ -194,8 +194,8 @@ World`);
         expect(getHighVariant('claude-sonnet-4-5')).toBe('claude-sonnet-4-5-high');
       });
 
-      it('should return high variant for claude-opus-4-5', () => {
-        expect(getHighVariant('claude-opus-4-5')).toBe('claude-opus-4-5-high');
+      it('should return high variant for claude-opus-4-6', () => {
+        expect(getHighVariant('claude-opus-4-6')).toBe('claude-opus-4-6-high');
       });
 
       it('should return high variant for claude-3-5-sonnet', () => {

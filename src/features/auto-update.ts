@@ -10,10 +10,14 @@
  * - Configurable update notifications
  */
 
-import { readFileSync, writeFileSync, existsSync, mkdirSync, unlinkSync } from 'fs';
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
 import { join, dirname } from 'path';
-import { homedir, tmpdir } from 'os';
-import { execSync } from 'child_process';
+import { execSync, execFileSync } from 'child_process';
+import { TaskTool } from '../hooks/beads-context/types.js';
+import { install as installOmc, HOOKS_DIR, isProjectScopedPlugin, isRunningAsPlugin } from '../installer/index.js';
+import { getConfigDir } from '../utils/config-dir.js';
+import { purgeStalePluginCacheVersions } from '../utils/paths.js';
+import type { NotificationConfig } from '../notifications/types.js';
 
 /** GitHub repository information */
 export const REPO_OWNER = 'Yeachan-Heo';
@@ -21,27 +25,153 @@ export const REPO_NAME = 'oh-my-claudecode';
 export const GITHUB_API_URL = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}`;
 export const GITHUB_RAW_URL = `https://raw.githubusercontent.com/${REPO_OWNER}/${REPO_NAME}`;
 
-/** Installation paths */
-export const CLAUDE_CONFIG_DIR = join(homedir(), '.claude');
+/**
+ * Best-effort sync of the Claude Code marketplace clone.
+ * The marketplace clone at ~/.claude/plugins/marketplaces/omc/ is used by
+ * Claude Code to populate the plugin cache. If it's stale, `/plugin install`
+ * and cache rebuilds reinstall old versions. (See #506)
+ */
+function syncMarketplaceClone(verbose: boolean = false): { ok: boolean; message: string } {
+  const marketplacePath = join(getConfigDir(), 'plugins', 'marketplaces', 'omc');
+  if (!existsSync(marketplacePath)) {
+    return { ok: true, message: 'Marketplace clone not found; skipping' };
+  }
+
+  const stdio = verbose ? 'inherit' : 'pipe';
+  const execOpts = { encoding: 'utf-8' as const, stdio: stdio as any, timeout: 60000 };
+
+  try {
+    execFileSync('git', ['-C', marketplacePath, 'fetch', '--all', '--prune'], execOpts);
+  } catch (err) {
+    return { ok: false, message: `Failed to fetch marketplace clone: ${err instanceof Error ? err.message : err}` };
+  }
+
+  // Ensure we're on main (ignore errors for older clones on different branches)
+  try { execFileSync('git', ['-C', marketplacePath, 'checkout', 'main'], { ...execOpts, timeout: 15000 }); } catch { /* ignore checkout errors on older clones */ }
+
+  // Reset to upstream state -- the marketplace clone is a managed read-only
+  // checkout, so any local modifications (e.g. regenerated dist files) can be
+  // safely discarded.  This avoids the "dirty worktree" failure that
+  // `git pull --ff-only` would hit when untracked/modified files exist (#978).
+  try {
+    execFileSync('git', ['-C', marketplacePath, 'reset', '--hard', 'origin/main'], execOpts);
+  } catch (err) {
+    return { ok: false, message: `Failed to reset marketplace clone: ${err instanceof Error ? err.message : err}` };
+  }
+
+  try {
+    execFileSync('git', ['-C', marketplacePath, 'clean', '-fd'], execOpts);
+  } catch {
+    // clean is best-effort; untracked leftovers won't break anything
+  }
+
+  return { ok: true, message: 'Marketplace clone updated' };
+}
+
+/** Installation paths (respects CLAUDE_CONFIG_DIR env var) */
+export const CLAUDE_CONFIG_DIR = getConfigDir();
 export const VERSION_FILE = join(CLAUDE_CONFIG_DIR, '.omc-version.json');
 export const CONFIG_FILE = join(CLAUDE_CONFIG_DIR, '.omc-config.json');
 
 /**
+ * Stop hook callback configuration for file logging
+ */
+export interface StopCallbackFileConfig {
+  enabled: boolean;
+  /** File path with placeholders: {session_id}, {date}, {time} */
+  path: string;
+  /** Output format */
+  format?: 'markdown' | 'json';
+}
+
+/**
+ * Stop hook callback configuration for Telegram
+ */
+export interface StopCallbackTelegramConfig {
+  enabled: boolean;
+  /** Telegram bot token */
+  botToken?: string;
+  /** Chat ID to send messages to */
+  chatId?: string;
+  /** Optional tags/usernames to prefix in notifications */
+  tagList?: string[];
+}
+
+/**
+ * Stop hook callback configuration for Discord
+ */
+export interface StopCallbackDiscordConfig {
+  enabled: boolean;
+  /** Discord webhook URL */
+  webhookUrl?: string;
+  /** Optional tags/user IDs/roles to prefix in notifications */
+  tagList?: string[];
+}
+
+/**
+ * Stop hook callback configuration for Slack
+ */
+export interface StopCallbackSlackConfig {
+  enabled: boolean;
+  /** Slack incoming webhook URL */
+  webhookUrl?: string;
+  /** Optional tags/mentions to include in notifications */
+  tagList?: string[];
+}
+
+/**
+ * Stop hook callbacks configuration
+ */
+export interface StopHookCallbacksConfig {
+  file?: StopCallbackFileConfig;
+  telegram?: StopCallbackTelegramConfig;
+  discord?: StopCallbackDiscordConfig;
+  slack?: StopCallbackSlackConfig;
+}
+
+/**
  * OMC configuration (stored in .omc-config.json)
  */
-export interface SisyphusConfig {
+export interface OMCConfig {
   /** Whether silent auto-updates are enabled (opt-in for security) */
   silentAutoUpdate: boolean;
   /** When the configuration was set */
   configuredAt?: string;
   /** Configuration schema version */
   configVersion?: number;
+  /** Preferred task management tool */
+  taskTool?: TaskTool;
+  /** Configuration for the selected task tool */
+  taskToolConfig?: {
+    /** Use beads-mcp instead of CLI */
+    useMcp?: boolean;
+    /** Inject usage instructions at session start (default: true) */
+    injectInstructions?: boolean;
+  };
+  /** Whether initial setup has been completed (ISO timestamp) */
+  setupCompleted?: string;
+  /** Version of setup wizard that was completed */
+  setupVersion?: string;
+  /** Stop hook callback configuration (legacy, use notifications instead) */
+  stopHookCallbacks?: StopHookCallbacksConfig;
+  /** Multi-platform lifecycle notification configuration */
+  notifications?: NotificationConfig;
+  /** Named notification profiles (keyed by profile name) */
+  notificationProfiles?: Record<string, NotificationConfig>;
+  /** Whether HUD statusline is enabled (default: true). Set to false to skip HUD installation. */
+  hudEnabled?: boolean;
+  /** Whether to prompt for upgrade at session start when a new version is available (default: true).
+   *  Set to false to show a passive notification instead of an interactive prompt. */
+  autoUpgradePrompt?: boolean;
+  /** Absolute path to the Node.js binary detected at setup time.
+   *  Used by find-node.sh so hooks work for nvm/fnm users where node is not on PATH. */
+  nodeBinary?: string;
 }
 
 /**
- * Read the Sisyphus configuration
+ * Read the OMC configuration
  */
-export function getSisyphusConfig(): SisyphusConfig {
+export function getOMCConfig(): OMCConfig {
   if (!existsSync(CONFIG_FILE)) {
     // No config file = disabled by default for security
     return { silentAutoUpdate: false };
@@ -49,11 +179,20 @@ export function getSisyphusConfig(): SisyphusConfig {
 
   try {
     const content = readFileSync(CONFIG_FILE, 'utf-8');
-    const config = JSON.parse(content) as SisyphusConfig;
+    const config = JSON.parse(content) as OMCConfig;
     return {
       silentAutoUpdate: config.silentAutoUpdate ?? false,
       configuredAt: config.configuredAt,
-      configVersion: config.configVersion
+      configVersion: config.configVersion,
+      taskTool: config.taskTool,
+      taskToolConfig: config.taskToolConfig,
+      setupCompleted: config.setupCompleted,
+      setupVersion: config.setupVersion,
+      stopHookCallbacks: config.stopHookCallbacks,
+      notifications: config.notifications,
+      notificationProfiles: config.notificationProfiles,
+      hudEnabled: config.hudEnabled,
+      autoUpgradePrompt: config.autoUpgradePrompt,
     };
   } catch {
     // If config file is invalid, default to disabled for security
@@ -65,7 +204,37 @@ export function getSisyphusConfig(): SisyphusConfig {
  * Check if silent auto-updates are enabled
  */
 export function isSilentAutoUpdateEnabled(): boolean {
-  return getSisyphusConfig().silentAutoUpdate;
+  return getOMCConfig().silentAutoUpdate;
+}
+
+/**
+ * Check if auto-upgrade prompt is enabled at session start
+ * Returns true by default - users must explicitly opt out
+ */
+export function isAutoUpgradePromptEnabled(): boolean {
+  return getOMCConfig().autoUpgradePrompt !== false;
+}
+
+/**
+ * Check if team feature is enabled
+ * Returns false by default - requires explicit opt-in
+ * Checks ~/.claude/settings.json first, then env var fallback
+ */
+export function isTeamEnabled(): boolean {
+  try {
+    const settingsPath = join(CLAUDE_CONFIG_DIR, 'settings.json');
+    if (existsSync(settingsPath)) {
+      const settings = JSON.parse(readFileSync(settingsPath, 'utf-8'));
+      const val = settings.env?.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS;
+      if (val === '1' || val === 'true') {
+        return true;
+      }
+    }
+  } catch {
+    // Fall through to env check
+  }
+  const envVal = process.env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS;
+  return envVal === '1' || envVal === 'true';
 }
 
 /**
@@ -115,6 +284,12 @@ export interface UpdateResult {
   success: boolean;
   previousVersion: string | null;
   newVersion: string;
+  message: string;
+  errors?: string[];
+}
+
+export interface UpdateReconcileResult {
+  success: boolean;
   message: string;
   errors?: string[];
 }
@@ -269,108 +444,184 @@ export async function checkForUpdates(): Promise<UpdateCheckResult> {
 }
 
 /**
+ * Reconcile runtime state after update
+ *
+ * This is safe to run repeatedly and refreshes local runtime artifacts that may
+ * lag behind an updated package or plugin cache.
+ */
+export function reconcileUpdateRuntime(options?: { verbose?: boolean }): UpdateReconcileResult {
+  const errors: string[] = [];
+
+  const projectScopedPlugin = isProjectScopedPlugin();
+  if (!projectScopedPlugin) {
+    try {
+      if (!existsSync(HOOKS_DIR)) {
+        mkdirSync(HOOKS_DIR, { recursive: true });
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      errors.push(`Failed to prepare hooks directory: ${message}`);
+    }
+  }
+
+  try {
+    const installResult = installOmc({
+      force: true,
+      verbose: options?.verbose ?? false,
+      skipClaudeCheck: true,
+      forceHooks: true,
+      refreshHooksInPlugin: !projectScopedPlugin,
+    });
+
+    if (!installResult.success) {
+      errors.push(...installResult.errors);
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    errors.push(`Failed to refresh installer artifacts: ${message}`);
+  }
+
+  // Purge stale plugin cache versions (non-fatal)
+  try {
+    const purgeResult = purgeStalePluginCacheVersions();
+    if (purgeResult.removed > 0 && options?.verbose) {
+      console.log(`[omc] Purged ${purgeResult.removed} stale plugin cache version(s)`);
+    }
+    if (purgeResult.errors.length > 0 && options?.verbose) {
+      for (const err of purgeResult.errors) {
+        console.warn(`[omc] Cache purge warning: ${err}`);
+      }
+    }
+  } catch {
+    // Cache purge is best-effort; never block reconciliation
+  }
+
+  if (errors.length > 0) {
+    return {
+      success: false,
+      message: 'Runtime reconciliation failed',
+      errors,
+    };
+  }
+
+  return {
+    success: true,
+    message: 'Runtime state reconciled successfully',
+  };
+}
+
+/**
  * Download and execute the install script to perform an update
  */
 export async function performUpdate(options?: {
   skipConfirmation?: boolean;
   verbose?: boolean;
+  standalone?: boolean;
 }): Promise<UpdateResult> {
   const installed = getInstalledVersion();
   const previousVersion = installed?.version ?? null;
 
   try {
+    // Check if running as plugin - prevent npm global update from corrupting plugin
+    if (isRunningAsPlugin() && !options?.standalone) {
+      return {
+        success: false,
+        previousVersion,
+        newVersion: 'unknown',
+        message: 'Running as a Claude Code plugin. Use "/plugin install oh-my-claudecode" to update, or pass --standalone to force npm update.',
+      };
+    }
+
     // Fetch the latest release to get the version
     const release = await fetchLatestRelease();
     const newVersion = release.tag_name.replace(/^v/, '');
 
-    // Download the install script
-    const installScriptUrl = `${GITHUB_RAW_URL}/main/scripts/install.sh`;
-    const response = await fetch(installScriptUrl);
-
-    if (!response.ok) {
-      throw new Error(`Failed to download install script: ${response.status}`);
-    }
-
-    const scriptContent = await response.text();
-
-    // Save to a temporary file
-    const tempDir = tmpdir();
-    const tempScript = join(tempDir, `omc-update-${Date.now()}.sh`);
-
-    writeFileSync(tempScript, scriptContent, { mode: 0o755 });
-
-    // Execute the install script (platform-aware)
+    // Use npm for updates on all platforms (install.sh was removed)
     try {
-      const isWindows = process.platform === 'win32';
-
-      if (isWindows) {
-        // Use npm for Windows updates instead of bash script
-        try {
-          execSync('npm install -g oh-my-claude-sisyphus@latest', {
-            encoding: 'utf-8',
-            stdio: options?.verbose ? 'inherit' : 'pipe',
-            timeout: 120000, // 2 minute timeout for npm
-            windowsHide: true
-          });
-
-          // Update version metadata for npm install
-          saveVersionMetadata({
-            version: newVersion,
-            installedAt: new Date().toISOString(),
-            installMethod: 'npm',
-            lastCheckAt: new Date().toISOString()
-          });
-
-          return {
-            success: true,
-            previousVersion,
-            newVersion,
-            message: `Successfully updated from ${previousVersion ?? 'unknown'} to ${newVersion} via npm`
-          };
-        } catch (npmError) {
-          throw new Error(
-            'Auto-update via npm failed. Please run manually:\n' +
-            '  npm install -g oh-my-claude-sisyphus@latest\n' +
-            `Error: ${npmError instanceof Error ? npmError.message : npmError}`
-          );
-        }
-      }
-
-      execSync(`bash "${tempScript}"`, {
+      execSync('npm install -g oh-my-claude-sisyphus@latest', {
         encoding: 'utf-8',
         stdio: options?.verbose ? 'inherit' : 'pipe',
-        timeout: 60000 // 1 minute timeout
+        timeout: 120000, // 2 minute timeout for npm
+        ...(process.platform === 'win32' ? { windowsHide: true } : {})
       });
 
-      // Update version metadata
-      saveVersionMetadata({
-        version: newVersion,
-        installedAt: new Date().toISOString(),
-        installMethod: 'script',
-        lastCheckAt: new Date().toISOString()
-      });
-
-      // Clean up temp file
-      try {
-        unlinkSync(tempScript);
-      } catch {
-        // Ignore cleanup errors
+      // Sync Claude Code marketplace clone so plugin cache picks up new version (#506)
+      const marketplaceSync = syncMarketplaceClone(options?.verbose ?? false);
+      if (!marketplaceSync.ok && options?.verbose) {
+        console.warn(`[omc update] ${marketplaceSync.message}`);
       }
 
-      return {
-        success: true,
-        previousVersion,
-        newVersion,
-        message: `Successfully updated from ${previousVersion ?? 'unknown'} to ${newVersion}`
-      };
-    } catch (error) {
-      // Clean up temp file on error too
-      try {
-        unlinkSync(tempScript);
-      } catch {
-        // Ignore cleanup errors
+      // CRITICAL FIX: After npm updates the global package, the current process
+      // still has OLD code loaded in memory. We must re-exec to run reconciliation
+      // with the NEW code. Otherwise, installOmc() runs OLD logic against NEW files.
+      if (!process.env.OMC_UPDATE_RECONCILE) {
+        // Set flag to prevent infinite loop
+        process.env.OMC_UPDATE_RECONCILE = '1';
+
+        // Find the omc binary path
+        const omcPath = execSync('which omc 2>/dev/null || where omc 2>NUL', {
+          encoding: 'utf-8',
+          stdio: 'pipe',
+        }).trim().split('\n')[0];
+
+        // Re-exec with reconcile subcommand
+        try {
+          execFileSync(omcPath, ['update-reconcile'], {
+            encoding: 'utf-8',
+            stdio: options?.verbose ? 'inherit' : 'pipe',
+            timeout: 60000,
+            env: { ...process.env, OMC_UPDATE_RECONCILE: '1' }
+          });
+        } catch (reconcileError) {
+          return {
+            success: false,
+            previousVersion,
+            newVersion,
+            message: `Updated to ${newVersion}, but runtime reconciliation failed`,
+            errors: [reconcileError instanceof Error ? reconcileError.message : String(reconcileError)],
+          };
+        }
+
+        // Update version metadata after reconciliation succeeds
+        saveVersionMetadata({
+          version: newVersion,
+          installedAt: new Date().toISOString(),
+          installMethod: 'npm',
+          lastCheckAt: new Date().toISOString()
+        });
+
+        return {
+          success: true,
+          previousVersion,
+          newVersion,
+          message: `Successfully updated from ${previousVersion ?? 'unknown'} to ${newVersion}`
+        };
+      } else {
+        // We're in the re-exec'd process - run reconciliation directly
+        const reconcileResult = reconcileUpdateRuntime({ verbose: options?.verbose });
+        if (!reconcileResult.success) {
+          return {
+            success: false,
+            previousVersion,
+            newVersion,
+            message: `Updated to ${newVersion}, but runtime reconciliation failed`,
+            errors: reconcileResult.errors?.map(e => `Reconciliation failed: ${e}`),
+          };
+        }
+        return {
+          success: true,
+          previousVersion,
+          newVersion,
+          message: 'Reconciliation completed successfully'
+        };
       }
-      throw error;
+    } catch (npmError) {
+      throw new Error(
+        'Auto-update via npm failed. Please run manually:\n' +
+        '  npm install -g oh-my-claude-sisyphus@latest\n' +
+        'Or use: /plugin install oh-my-claudecode\n' +
+        `Error: ${npmError instanceof Error ? npmError.message : npmError}`
+      );
     }
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
@@ -401,7 +652,7 @@ export function formatUpdateNotification(checkResult: UpdateCheckResult): string
     `  Latest version:  ${checkResult.latestVersion}`,
     '',
     '  To update, run: /update',
-    '  Or run: curl -fsSL https://raw.githubusercontent.com/Yeachan-Heo/oh-my-claudecode/main/scripts/install.sh | bash',
+    '  Or reinstall via: /plugin install oh-my-claudecode',
     ''
   ];
 

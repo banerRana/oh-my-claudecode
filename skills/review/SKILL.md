@@ -1,36 +1,30 @@
 ---
-name: review
-description: Review a plan with Critic
+name: omc-review
+description: Alias for /plan --review
 ---
 
-# Review Skill
+# Review (Plan Review Alias)
 
-[PLAN REVIEW MODE ACTIVATED]
+Review is a shorthand alias for `/oh-my-claudecode:plan --review`. It triggers Critic evaluation of an existing plan.
 
-## Role
+## Usage
 
-Critically evaluate plans using Critic. No plan passes without meeting rigorous standards.
+```
+/oh-my-claudecode:review
+/oh-my-claudecode:review "path/to/plan.md"
+```
 
-## Review Criteria
+## Behavior
 
-| Criterion | Standard |
-|-----------|----------|
-| Clarity | 80%+ claims cite file/line |
-| Testability | 90%+ criteria are concrete |
-| Verification | All file refs exist |
-| Specificity | No vague terms |
+This skill invokes the Plan skill in review mode:
 
-## Verdicts
+```
+/oh-my-claudecode:plan --review <arguments>
+```
 
-**APPROVED** - Plan meets all criteria, ready for execution
-**REVISE** - Plan has issues needing fixes (with specific feedback)
-**REJECT** - Fundamental problems require replanning
+The review workflow:
+1. Read plan file from `.omc/plans/` (or specified path)
+2. Evaluate via Critic agent
+3. Return verdict: APPROVED, REVISE (with specific feedback), or REJECT (replanning required)
 
-## What Gets Checked
-
-1. Are requirements clear and unambiguous?
-2. Are acceptance criteria concrete and testable?
-3. Do file references actually exist?
-4. Are implementation steps specific?
-5. Are risks identified with mitigations?
-6. Are verification steps defined?
+Follow the Plan skill's full documentation for review mode details.

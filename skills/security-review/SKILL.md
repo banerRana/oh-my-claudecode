@@ -1,5 +1,5 @@
 ---
-name: security-review
+name: omc-security-review
 description: Run a comprehensive security review on code
 ---
 
@@ -85,6 +85,34 @@ Output: Security review report with:
 - Overall security posture assessment"
 )
 ```
+
+## External Consultation (Optional)
+
+The security-reviewer agent MAY consult a Claude Task agent for cross-validation.
+
+### Protocol
+1. **Form your OWN security analysis FIRST** - Complete the review independently
+2. **Consult for validation** - Cross-check findings via a Claude Task agent
+3. **Critically evaluate** - Never blindly adopt external findings
+4. **Graceful fallback** - Never block if delegation is unavailable
+
+### When to Consult
+- Authentication/authorization code
+- Cryptographic implementations
+- Input validation for untrusted data
+- High-risk vulnerability patterns
+- Production deployment code
+
+### When to Skip
+- Low-risk utility code
+- Well-audited patterns
+- Time-critical security assessments
+- Code with existing security tests
+
+### Tool Usage
+Use `Task(subagent_type="oh-my-claudecode:security-reviewer", ...)` for cross-validation.
+
+**Note:** Security second opinions are high-value. Consider consulting for CRITICAL/HIGH findings.
 
 ## Output Format
 

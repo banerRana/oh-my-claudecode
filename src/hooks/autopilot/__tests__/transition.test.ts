@@ -8,7 +8,6 @@ import {
   readAutopilotState,
   transitionRalphToUltraQA,
   transitionUltraQAToValidation,
-  transitionToComplete,
   getTransitionPrompt
 } from '../state.js';
 
@@ -25,7 +24,7 @@ describe('Phase Transitions', () => {
 
   describe('transitionRalphToUltraQA', () => {
     it('should fail if not in execution phase', () => {
-      initAutopilot(testDir, 'test');
+      initAutopilot(testDir, 'test', 'session-1');
       // Still in expansion phase
       const result = transitionRalphToUltraQA(testDir, 'session-1');
       expect(result.success).toBe(false);
@@ -33,13 +32,13 @@ describe('Phase Transitions', () => {
     });
 
     it('should transition from execution to qa', () => {
-      initAutopilot(testDir, 'test');
-      transitionPhase(testDir, 'execution');
+      initAutopilot(testDir, 'test', 'session-1');
+      transitionPhase(testDir, 'execution', 'session-1');
 
       const result = transitionRalphToUltraQA(testDir, 'session-1');
       expect(result.success).toBe(true);
 
-      const state = readAutopilotState(testDir);
+      const state = readAutopilotState(testDir, 'session-1');
       expect(state?.phase).toBe('qa');
     });
   });

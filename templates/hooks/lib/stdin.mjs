@@ -1,21 +1,21 @@
 /**
  * Shared stdin utilities for OMC hooks
- * Provides timeout-protected stdin reading to prevent hangs on Linux
+ * Provides timeout-protected stdin reading to prevent hangs on Linux and Windows
  * See: https://github.com/Yeachan-Heo/oh-my-claudecode/issues/240
  */
 
 /**
- * Read all stdin with timeout to prevent indefinite hang on Linux.
+ * Read all stdin with timeout to prevent indefinite hang on Linux and Windows.
  *
  * The blocking `for await (const chunk of process.stdin)` pattern waits
  * indefinitely for EOF. On Linux, if the parent process doesn't properly
  * close stdin, this hangs forever. This function uses event-based reading
  * with a timeout as a safety net.
  *
- * @param {number} timeoutMs - Maximum time to wait for stdin (default: 5000ms)
+ * @param {number} timeoutMs - Maximum time to wait for stdin (default: 2000ms)
  * @returns {Promise<string>} - The stdin content, or empty string on error/timeout
  */
-export async function readStdin(timeoutMs = 5000) {
+export async function readStdin(timeoutMs = 2000) {
   return new Promise((resolve) => {
     const chunks = [];
     let settled = false;

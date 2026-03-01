@@ -31,6 +31,10 @@ import type {
   RoutingContext,
   ComplexitySignals,
 } from '../features/model-routing/types.js';
+import {
+  getDefaultModelHigh,
+  getDefaultModelLow,
+} from '../config/models.js';
 
 // ============ Signal Extraction Tests ============
 
@@ -636,6 +640,7 @@ describe('Routing Rules', () => {
 // ============ Router Tests ============
 
 describe('Router', () => {
+
   describe('routeTask', () => {
     it('should route simple task to LOW tier', () => {
       const context: RoutingContext = {
@@ -645,7 +650,7 @@ describe('Router', () => {
 
       expect(decision.tier).toBe('LOW');
       expect(decision.modelType).toBe('haiku');
-      expect(decision.model).toBe('claude-haiku-4-5-20251001');
+      expect(decision.model).toBe(getDefaultModelLow());
     });
 
     it('should route complex task to HIGH tier', () => {
@@ -656,7 +661,7 @@ describe('Router', () => {
 
       expect(decision.tier).toBe('HIGH');
       expect(decision.modelType).toBe('opus');
-      expect(decision.model).toBe('claude-opus-4-5-20251101');
+      expect(decision.model).toBe(getDefaultModelHigh());
     });
 
     it('should respect explicit model override', () => {
@@ -712,6 +717,18 @@ describe('Router', () => {
       expect(decision.confidence).toBeGreaterThan(0);
       expect(decision.confidence).toBeLessThanOrEqual(1);
     });
+
+    it('should clamp LOW tier to MEDIUM when minTier=MEDIUM', () => {
+      const context: RoutingContext = {
+        taskPrompt: 'Find the config file',
+      };
+      const decision = routeTask(context, { minTier: 'MEDIUM' });
+
+      expect(decision.tier).toBe('MEDIUM');
+      expect(decision.modelType).toBe('sonnet');
+      expect(decision.reasons.join(' ')).toContain('Min tier enforced');
+    });
+
   });
 
   describe('escalateModel', () => {

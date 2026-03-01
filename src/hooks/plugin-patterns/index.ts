@@ -10,8 +10,8 @@
  */
 
 import { existsSync, readFileSync } from 'fs';
-import { join, extname, normalize, isAbsolute } from 'path';
-import { execSync } from 'child_process';
+import { join, extname, normalize } from 'path';
+import { execFileSync, spawnSync } from 'child_process';
 
 // =============================================================================
 // SECURITY UTILITIES
@@ -22,12 +22,16 @@ import { execSync } from 'child_process';
  * Blocks shell metacharacters and path traversal attempts
  */
 export function isValidFilePath(filePath: string): boolean {
-  // Block shell metacharacters (sync with DANGEROUS_SHELL_CHARS but add \t)
-  if (/[;&|`$()<>{}[\]*?~!#\n\r\t\0\\]/.test(filePath)) return false;
+  // Normalize Windows path separators to forward slashes before checking.
+  // Backslashes are valid path separators on Windows (e.g. src\file.ts,
+  // C:\repo\file.ts) and must not be treated as shell metacharacters.
+  const normalized = filePath.replace(/\\/g, '/');
+
+  // Block shell metacharacters
+  if (/[;&|`$()<>{}[\]*?~!#\n\r\t\0]/.test(normalized)) return false;
 
   // Block path traversal
-  const normalized = normalize(filePath);
-  if (normalized.includes('..') || isAbsolute(normalized)) return false;
+  if (normalize(normalized).includes('..')) return false;
 
   return true;
 }
@@ -70,14 +74,10 @@ export function getFormatter(ext: string): string | null {
  * Check if a formatter is available
  */
 export function isFormatterAvailable(command: string): boolean {
-  try {
-    const binary = command.split(' ')[0];
-    const checkCommand = process.platform === 'win32' ? 'where' : 'which';
-    execSync(`${checkCommand} ${binary}`, { encoding: 'utf-8', stdio: 'pipe' });
-    return true;
-  } catch {
-    return false;
-  }
+  const binary = command.split(' ')[0];
+  const checkCommand = process.platform === 'win32' ? 'where' : 'which';
+  const result = spawnSync(checkCommand, [binary], { stdio: 'ignore' });
+  return result.status === 0;
 }
 
 /**
@@ -101,7 +101,8 @@ export function formatFile(filePath: string): { success: boolean; message: strin
   }
 
   try {
-    execSync(`${formatter} "${filePath}"`, { encoding: 'utf-8', stdio: 'pipe' });
+    const [formatterBin, ...formatterArgs] = formatter.split(' ');
+    execFileSync(formatterBin, [...formatterArgs, filePath], { encoding: 'utf-8', stdio: 'pipe' });
     return { success: true, message: `Formatted ${filePath}` };
   } catch (_error) {
     return { success: false, message: `Format failed: ${_error}` };
@@ -154,16 +155,16 @@ export function lintFile(filePath: string): { success: boolean; message: string 
     return { success: true, message: `No linter configured for ${ext}` };
   }
 
-  try {
-    const binary = linter.split(' ')[0];
-    const checkCommand = process.platform === 'win32' ? 'where' : 'which';
-    execSync(`${checkCommand} ${binary}`, { encoding: 'utf-8', stdio: 'pipe' });
-  } catch {
+  const linterBin = linter.split(' ')[0];
+  const checkCommand = process.platform === 'win32' ? 'where' : 'which';
+  const checkResult = spawnSync(checkCommand, [linterBin], { stdio: 'ignore' });
+  if (checkResult.status !== 0) {
     return { success: true, message: `Linter ${linter} not available` };
   }
 
   try {
-    execSync(`${linter} "${filePath}"`, { encoding: 'utf-8', stdio: 'pipe' });
+    const [linterCmd, ...linterArgs] = linter.split(' ');
+    execFileSync(linterCmd, [...linterArgs, filePath], { encoding: 'utf-8', stdio: 'pipe' });
     return { success: true, message: `Lint passed for ${filePath}` };
   } catch (_error) {
     return { success: false, message: `Lint errors in ${filePath}` };
@@ -218,12 +219,18 @@ export function validateCommitMessage(
     return { valid: false, errors };
   }
 
+  // Determine effective types: prefer config.types when non-empty
+  const effectiveTypes = config?.types?.length ? config.types : DEFAULT_COMMIT_TYPES;
+  const commitRegex = effectiveTypes === DEFAULT_COMMIT_TYPES
+    ? CONVENTIONAL_COMMIT_REGEX
+    : new RegExp(`^(${effectiveTypes.join('|')})(\\([a-z0-9-]+\\))?(!)?:\\s.+$`);
+
   // Check conventional commit format
-  if (!CONVENTIONAL_COMMIT_REGEX.test(subject)) {
+  if (!commitRegex.test(subject)) {
     errors.push(
       'Subject must follow conventional commit format: type(scope?): description'
     );
-    errors.push(`Allowed types: ${DEFAULT_COMMIT_TYPES.join(', ')}`);
+    errors.push(`Allowed types: ${effectiveTypes.join(', ')}`);
   }
 
   // Check subject length
@@ -264,19 +271,17 @@ export function runTypeCheck(directory: string): { success: boolean; message: st
     return { success: true, message: 'No tsconfig.json found' };
   }
 
-  try {
-    const checkCommand = process.platform === 'win32' ? 'where' : 'which';
-    execSync(`${checkCommand} tsc`, { encoding: 'utf-8', stdio: 'pipe' });
-  } catch {
+  const checkCommand = process.platform === 'win32' ? 'where' : 'which';
+  const tscCheck = spawnSync(checkCommand, ['tsc'], { stdio: 'ignore' });
+  if (tscCheck.status !== 0) {
     return { success: true, message: 'TypeScript not installed' };
   }
 
-  try {
-    execSync('tsc --noEmit', { cwd: directory, encoding: 'utf-8', stdio: 'pipe' });
+  const tscResult = spawnSync('npx', ['tsc', '--noEmit'], { cwd: directory, stdio: 'pipe' });
+  if (tscResult.status === 0) {
     return { success: true, message: 'Type check passed' };
-  } catch (_error) {
-    return { success: false, message: 'Type errors found' };
   }
+  return { success: false, message: 'Type errors found' };
 }
 
 // =============================================================================
@@ -293,7 +298,7 @@ export function runTests(directory: string): { success: boolean; message: string
     try {
       const pkg = JSON.parse(readFileSync(packageJsonPath, 'utf-8'));
       if (pkg.scripts?.test) {
-        execSync('npm test', { cwd: directory, encoding: 'utf-8', stdio: 'pipe' });
+        execFileSync('npm', ['test'], { cwd: directory, encoding: 'utf-8', stdio: 'pipe' });
         return { success: true, message: 'Tests passed' };
       }
     } catch (_error) {
@@ -304,7 +309,7 @@ export function runTests(directory: string): { success: boolean; message: string
   // Check for pytest
   if (existsSync(join(directory, 'pytest.ini')) || existsSync(join(directory, 'pyproject.toml'))) {
     try {
-      execSync('pytest', { cwd: directory, encoding: 'utf-8', stdio: 'pipe' });
+      execFileSync('pytest', [], { cwd: directory, encoding: 'utf-8', stdio: 'pipe' });
       return { success: true, message: 'Tests passed' };
     } catch (_error) {
       return { success: false, message: 'Tests failed' };
@@ -312,6 +317,35 @@ export function runTests(directory: string): { success: boolean; message: string
   }
 
   return { success: true, message: 'No test runner found' };
+}
+
+// =============================================================================
+// PROJECT-LEVEL LINT RUNNER PATTERN
+// =============================================================================
+
+/**
+ * Run project-level lint checks
+ */
+export function runLint(directory: string): { success: boolean; message: string } {
+  const packageJsonPath = join(directory, 'package.json');
+
+  if (existsSync(packageJsonPath)) {
+    try {
+      const pkg = JSON.parse(readFileSync(packageJsonPath, 'utf-8'));
+      if (pkg.scripts?.lint) {
+        try {
+          execFileSync('npm', ['run', 'lint'], { cwd: directory, encoding: 'utf-8', stdio: 'pipe' });
+          return { success: true, message: 'Lint passed' };
+        } catch (_error) {
+          return { success: false, message: 'Lint errors found' };
+        }
+      }
+    } catch {
+      // Could not read package.json
+    }
+  }
+
+  return { success: true, message: 'No lint script found' };
 }
 
 // =============================================================================
@@ -342,6 +376,22 @@ export function runPreCommitChecks(
     name: 'Type Check',
     passed: typeCheck.success,
     message: typeCheck.message
+  });
+
+  // Test runner
+  const testCheck = runTests(directory);
+  checks.push({
+    name: 'Tests',
+    passed: testCheck.success,
+    message: testCheck.message
+  });
+
+  // Lint
+  const lintCheck = runLint(directory);
+  checks.push({
+    name: 'Lint',
+    passed: lintCheck.success,
+    message: lintCheck.message
   });
 
   // Commit message validation

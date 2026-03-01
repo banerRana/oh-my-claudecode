@@ -6,10 +6,17 @@
  *
  * This solves the problem where Claude Code doesn't automatically apply models
  * from agent definitions - every Task call must explicitly pass the model parameter.
+ *
+ * For non-Claude providers (CC Switch, LiteLLM, etc.), forceInherit is auto-enabled
+ * by the config loader (issue #1201), which causes this enforcer to strip model
+ * parameters so agents inherit the user's configured model instead of receiving
+ * Claude-specific tier names (sonnet/opus/haiku) that the provider won't recognize.
  */
 
 import { getAgentDefinitions } from '../agents/definitions.js';
+import { normalizeDelegationRole } from './delegation-routing/types.js';
 import type { ModelType } from '../shared/types.js';
+import { loadConfig } from '../config/loader.js';
 
 /**
  * Agent input structure from Claude Agent SDK
@@ -50,6 +57,21 @@ export interface EnforcementResult {
  * @throws Error if agent type has no default model
  */
 export function enforceModel(agentInput: AgentInput): EnforcementResult {
+  // If forceInherit is enabled, skip model injection entirely so agents
+  // inherit the user's Claude Code model setting (issue #1135)
+  const config = loadConfig();
+  if (config.routing?.forceInherit) {
+    // Strip model if present, or leave as-is if not
+    const { model: _existing, ...rest } = agentInput;
+    const cleanedInput: AgentInput = rest as AgentInput;
+    return {
+      originalInput: agentInput,
+      modifiedInput: cleanedInput,
+      injected: false,
+      model: 'inherit' as ModelType,
+    };
+  }
+
   // If model is already specified, return as-is
   if (agentInput.model) {
     return {
@@ -61,7 +83,9 @@ export function enforceModel(agentInput: AgentInput): EnforcementResult {
   }
 
   // Extract agent type (strip oh-my-claudecode: prefix if present)
-  const agentType = agentInput.subagent_type.replace(/^oh-my-claudecode:/, '');
+  const rawAgentType = agentInput.subagent_type.replace(/^oh-my-claudecode:/, '');
+  // Normalize deprecated role aliases before registry lookup
+  const agentType = normalizeDelegationRole(rawAgentType);
 
   // Get agent definition
   const agentDefs = getAgentDefinitions();
@@ -73,6 +97,20 @@ export function enforceModel(agentInput: AgentInput): EnforcementResult {
 
   if (!agentDef.model) {
     throw new Error(`No default model defined for agent: ${agentType}`);
+  }
+
+  // If the agent's default model is 'inherit', don't inject any model parameter.
+  // This lets the agent inherit the parent session's model, which is essential
+  // for non-Claude providers where tier names like 'sonnet' cause 400 errors.
+  if (agentDef.model === 'inherit') {
+    const { model: _existing, ...rest } = agentInput;
+    const cleanedInput: AgentInput = rest as AgentInput;
+    return {
+      originalInput: agentInput,
+      modifiedInput: cleanedInput,
+      injected: false,
+      model: 'inherit',
+    };
   }
 
   // Convert ModelType to SDK model type
@@ -100,11 +138,17 @@ export function enforceModel(agentInput: AgentInput): EnforcementResult {
 }
 
 /**
- * Convert ModelType to SDK model format
+ * Convert ModelType to SDK model format.
+ *
+ * Note: 'inherit' should never reach this function — it is handled
+ * earlier by the forceInherit check or the explicit inherit guard.
+ * The fallback to 'sonnet' is a defensive measure only.
  */
 function convertToSdkModel(model: ModelType): 'sonnet' | 'opus' | 'haiku' {
   if (model === 'inherit') {
-    return 'sonnet'; // Default fallback
+    // Defensive: 'inherit' should be intercepted before reaching here.
+    // Fall back to 'sonnet' to avoid breaking existing behavior.
+    return 'sonnet';
   }
   return model;
 }

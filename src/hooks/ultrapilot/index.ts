@@ -18,10 +18,6 @@ import {
   writeUltrapilotState,
   initUltrapilot,
   addWorker,
-  updateWorkerState,
-  completeWorker,
-  failWorker,
-  completeUltrapilot,
   getCompletedWorkers,
   getRunningWorkers,
   getFailedWorkers,
@@ -66,7 +62,8 @@ export type {
 export async function startUltrapilot(
   cwd: string,
   task: string,
-  config?: Partial<UltrapilotConfig>
+  config?: Partial<UltrapilotConfig>,
+  sessionId?: string
 ): Promise<UltrapilotState> {
   const mergedConfig = { ...DEFAULT_CONFIG, ...config };
 
@@ -74,7 +71,7 @@ export async function startUltrapilot(
   const subtasks = await decomposeTask(task, mergedConfig);
 
   // Initialize state
-  const state = initUltrapilot(cwd, task, subtasks, undefined, mergedConfig);
+  const state = initUltrapilot(cwd, task, subtasks, sessionId, mergedConfig);
   if (!state) {
     throw new Error('Failed to initialize ultrapilot: another mode is active');
   }
@@ -178,7 +175,7 @@ export async function spawnWorkers(
     throw new Error('Ultrapilot not initialized');
   }
 
-  const mergedConfig = { ...DEFAULT_CONFIG, ...config };
+  const _mergedConfig = { ...DEFAULT_CONFIG, ...config };
   const workers: WorkerState[] = [];
 
   for (let i = 0; i < subtasks.length; i++) {

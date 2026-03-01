@@ -1,8 +1,8 @@
 /**
  * Boulder State Types
  *
- * Manages the active work plan state for Sisyphus orchestrator.
- * Named after Sisyphus's boulder - the eternal task that must be rolled.
+ * Manages the active work plan state for OMC orchestrator.
+ * Named after OMC's boulder - the eternal task that must be rolled.
  *
  * Ported from oh-my-opencode's boulder-state.
  */
@@ -19,6 +19,10 @@ export interface BoulderState {
   session_ids: string[];
   /** Plan name derived from filename */
   plan_name: string;
+  /** Whether this boulder is currently active */
+  active: boolean;
+  /** ISO timestamp of last state update (for stale detection) */
+  updatedAt: string;
   /** Optional metadata */
   metadata?: Record<string, unknown>;
 }

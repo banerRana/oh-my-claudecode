@@ -10,12 +10,21 @@ import {
   getModelForAgent,
   type AgentInput
 } from '../features/delegation-enforcer.js';
+import { resolveDelegation } from '../features/delegation-routing/resolver.js';
 
 describe('delegation-enforcer', () => {
   let originalDebugEnv: string | undefined;
+  // Save/restore env vars that trigger non-Claude provider detection (issue #1201)
+  // so existing tests run in a standard Claude environment
+  const providerEnvKeys = ['ANTHROPIC_BASE_URL', 'CLAUDE_MODEL', 'ANTHROPIC_MODEL', 'OMC_ROUTING_FORCE_INHERIT'];
+  const savedProviderEnv: Record<string, string | undefined> = {};
 
   beforeEach(() => {
     originalDebugEnv = process.env.OMC_DEBUG;
+    for (const key of providerEnvKeys) {
+      savedProviderEnv[key] = process.env[key];
+      delete process.env[key];
+    }
   });
 
   afterEach(() => {
@@ -23,6 +32,13 @@ describe('delegation-enforcer', () => {
       delete process.env.OMC_DEBUG;
     } else {
       process.env.OMC_DEBUG = originalDebugEnv;
+    }
+    for (const key of providerEnvKeys) {
+      if (savedProviderEnv[key] === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = savedProviderEnv[key];
+      }
     }
   });
 
@@ -60,13 +76,13 @@ describe('delegation-enforcer', () => {
       const input: AgentInput = {
         description: 'Test task',
         prompt: 'Do something',
-        subagent_type: 'executor-low'
+        subagent_type: 'debugger'
       };
 
       const result = enforceModel(input);
 
       expect(result.injected).toBe(true);
-      expect(result.modifiedInput.model).toBe('haiku'); // executor-low defaults to haiku
+      expect(result.modifiedInput.model).toBe('sonnet'); // debugger defaults to sonnet
     });
 
     it('throws error for unknown agent type', () => {
@@ -112,19 +128,16 @@ describe('delegation-enforcer', () => {
       expect(result.warning).toBeUndefined();
     });
 
-    it('works with all tiered agents', () => {
+    it('works with all agents', () => {
       const testCases = [
         { agent: 'architect', expectedModel: 'opus' },
-        { agent: 'architect-medium', expectedModel: 'sonnet' },
-        { agent: 'architect-low', expectedModel: 'haiku' },
         { agent: 'executor', expectedModel: 'sonnet' },
-        { agent: 'executor-high', expectedModel: 'opus' },
-        { agent: 'executor-low', expectedModel: 'haiku' },
         { agent: 'explore', expectedModel: 'haiku' },
-        { agent: 'explore-medium', expectedModel: 'sonnet' },
         { agent: 'designer', expectedModel: 'sonnet' },
-        { agent: 'designer-high', expectedModel: 'opus' },
-        { agent: 'designer-low', expectedModel: 'haiku' }
+        { agent: 'debugger', expectedModel: 'sonnet' },
+        { agent: 'verifier', expectedModel: 'sonnet' },
+        { agent: 'quality-reviewer', expectedModel: 'sonnet' },
+        { agent: 'test-engineer', expectedModel: 'sonnet' }
       ];
 
       for (const testCase of testCases) {
@@ -239,18 +252,116 @@ describe('delegation-enforcer', () => {
   describe('getModelForAgent', () => {
     it('returns correct model for agent with prefix', () => {
       expect(getModelForAgent('oh-my-claudecode:executor')).toBe('sonnet');
-      expect(getModelForAgent('oh-my-claudecode:executor-low')).toBe('haiku');
+      expect(getModelForAgent('oh-my-claudecode:debugger')).toBe('sonnet');
       expect(getModelForAgent('oh-my-claudecode:architect')).toBe('opus');
     });
 
     it('returns correct model for agent without prefix', () => {
       expect(getModelForAgent('executor')).toBe('sonnet');
-      expect(getModelForAgent('executor-low')).toBe('haiku');
+      expect(getModelForAgent('debugger')).toBe('sonnet');
       expect(getModelForAgent('architect')).toBe('opus');
     });
 
     it('throws error for unknown agent', () => {
       expect(() => getModelForAgent('unknown')).toThrow('Unknown agent type');
+    });
+  });
+
+  describe('deprecated alias routing', () => {
+    it('routes api-reviewer to code-reviewer', () => {
+      const result = resolveDelegation({ agentRole: 'api-reviewer' });
+      expect(result.provider).toBe('claude');
+      expect(result.tool).toBe('Task');
+      expect(result.agentOrModel).toBe('code-reviewer');
+    });
+
+    it('routes performance-reviewer to quality-reviewer', () => {
+      const result = resolveDelegation({ agentRole: 'performance-reviewer' });
+      expect(result.provider).toBe('claude');
+      expect(result.tool).toBe('Task');
+      expect(result.agentOrModel).toBe('quality-reviewer');
+    });
+
+    it('routes dependency-expert to document-specialist', () => {
+      const result = resolveDelegation({ agentRole: 'dependency-expert' });
+      expect(result.provider).toBe('claude');
+      expect(result.tool).toBe('Task');
+      expect(result.agentOrModel).toBe('document-specialist');
+    });
+
+    it('routes quality-strategist to quality-reviewer', () => {
+      const result = resolveDelegation({ agentRole: 'quality-strategist' });
+      expect(result.provider).toBe('claude');
+      expect(result.tool).toBe('Task');
+      expect(result.agentOrModel).toBe('quality-reviewer');
+    });
+
+    it('routes vision to document-specialist', () => {
+      const result = resolveDelegation({ agentRole: 'vision' });
+      expect(result.provider).toBe('claude');
+      expect(result.tool).toBe('Task');
+      expect(result.agentOrModel).toBe('document-specialist');
+    });
+  });
+
+  describe('non-Claude provider support (issue #1201)', () => {
+    const savedEnv: Record<string, string | undefined> = {};
+    const envKeys = ['CLAUDE_MODEL', 'ANTHROPIC_BASE_URL', 'OMC_ROUTING_FORCE_INHERIT'];
+
+    beforeEach(() => {
+      for (const key of envKeys) {
+        savedEnv[key] = process.env[key];
+        delete process.env[key];
+      }
+    });
+
+    afterEach(() => {
+      for (const key of envKeys) {
+        if (savedEnv[key] === undefined) {
+          delete process.env[key];
+        } else {
+          process.env[key] = savedEnv[key];
+        }
+      }
+    });
+
+    it('strips model when non-Claude provider auto-enables forceInherit', () => {
+      process.env.CLAUDE_MODEL = 'glm-5';
+      // forceInherit is auto-enabled by loadConfig for non-Claude providers
+      const input: AgentInput = {
+        description: 'Test task',
+        prompt: 'Do something',
+        subagent_type: 'oh-my-claudecode:executor',
+        model: 'sonnet'
+      };
+      const result = enforceModel(input);
+      expect(result.model).toBe('inherit');
+      expect(result.modifiedInput.model).toBeUndefined();
+    });
+
+    it('strips model when custom ANTHROPIC_BASE_URL auto-enables forceInherit', () => {
+      process.env.ANTHROPIC_BASE_URL = 'https://my-proxy.example.com/v1';
+      const input: AgentInput = {
+        description: 'Test task',
+        prompt: 'Do something',
+        subagent_type: 'oh-my-claudecode:architect',
+        model: 'opus'
+      };
+      const result = enforceModel(input);
+      expect(result.model).toBe('inherit');
+      expect(result.modifiedInput.model).toBeUndefined();
+    });
+
+    it('does not strip model for standard Claude setup', () => {
+      const input: AgentInput = {
+        description: 'Test task',
+        prompt: 'Do something',
+        subagent_type: 'oh-my-claudecode:executor',
+        model: 'haiku'
+      };
+      const result = enforceModel(input);
+      expect(result.model).toBe('haiku');
+      expect(result.modifiedInput.model).toBe('haiku');
     });
   });
 });

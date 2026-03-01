@@ -1,6 +1,6 @@
 {
   "name": "oh-my-claude-sisyphus",
-  "version": "3.8.17",
+  "version": "4.5.3",
   "description": "Multi-agent orchestration system for Claude Code - Inspired by oh-my-opencode",
   "type": "module",
   "main": "dist/index.js",
@@ -14,13 +14,16 @@
   "bin": {
     "oh-my-claudecode": "dist/cli/index.js",
     "omc": "dist/cli/index.js",
-    "omc-analytics": "dist/cli/analytics.js",
     "omc-cli": "dist/cli/index.js"
   },
   "files": [
     "dist",
     "agents",
     "bridge",
+    "bridge/mcp-server.cjs",
+    "bridge/team-bridge.cjs",
+    "bridge/team-mcp.cjs",
+    "bridge/runtime-cli.cjs",
     "commands",
     "hooks",
     "scripts",
@@ -33,8 +36,14 @@
     "LICENSE"
   ],
   "scripts": {
-    "build": "tsc && node scripts/build-skill-bridge.mjs && node scripts/build-mcp-server.mjs",
+    "build": "tsc && node scripts/build-skill-bridge.mjs && node scripts/build-mcp-server.mjs && node scripts/build-bridge-entry.mjs && npm run compose-docs && npm run build:runtime-cli && npm run build:team-server",
     "build:bridge": "node scripts/build-skill-bridge.mjs",
+    "build:codex": "echo '[deprecated] Codex MCP server removed in v5.0 - use tmux team workers instead'",
+    "build:gemini": "echo '[deprecated] Gemini MCP server removed in v5.0 - use tmux team workers instead'",
+    "build:bridge-entry": "node scripts/build-bridge-entry.mjs",
+    "build:runtime-cli": "node scripts/build-runtime-cli.mjs",
+    "build:team-server": "node scripts/build-team-server.mjs",
+    "compose-docs": "node scripts/compose-docs.mjs",
     "dev": "tsc --watch",
     "start": "node dist/index.js",
     "test": "vitest",
@@ -46,14 +55,12 @@
     "sync-metadata": "tsx scripts/sync-metadata.ts",
     "sync-metadata:verify": "tsx scripts/sync-metadata.ts --verify",
     "sync-metadata:dry-run": "tsx scripts/sync-metadata.ts --dry-run",
-    "prepare": "npm run build",
-    "prepublishOnly": "npm run build"
+    "prepublishOnly": "npm run build && npm run compose-docs"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.1.0",
     "@ast-grep/napi": "^0.31.0",
-    "@modelcontextprotocol/sdk": "^1.25.3",
-    "@tokscale/core": "^1.0.25",
+    "@modelcontextprotocol/sdk": "^1.26.0",
     "@types/better-sqlite3": "^7.6.13",
     "ajv": "^8.17.1",
     "better-sqlite3": "^12.6.2",

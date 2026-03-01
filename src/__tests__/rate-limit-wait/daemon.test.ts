@@ -2,8 +2,8 @@
  * Tests for daemon.ts
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { mkdirSync, writeFileSync, unlinkSync, existsSync, rmSync, statSync } from 'fs';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { mkdirSync, writeFileSync, existsSync, rmSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import {
@@ -53,6 +53,8 @@ describe('daemon', () => {
           isLimited: false,
           fiveHourResetsAt: null,
           weeklyResetsAt: null,
+          monthlyLimited: false,
+          monthlyResetsAt: null,
           nextResetAt: null,
           timeUntilResetMs: null,
           lastCheckedAt: new Date('2024-01-01T00:01:00Z'),
@@ -181,6 +183,8 @@ describe('daemon', () => {
           isLimited: false,
           fiveHourResetsAt: null,
           weeklyResetsAt: null,
+          monthlyLimited: false,
+          monthlyResetsAt: null,
           nextResetAt: null,
           timeUntilResetMs: null,
           lastCheckedAt: new Date(),
@@ -214,6 +218,8 @@ describe('daemon', () => {
           isLimited: true,
           fiveHourResetsAt: new Date(Date.now() + 3600000),
           weeklyResetsAt: null,
+          monthlyLimited: false,
+          monthlyResetsAt: null,
           nextResetAt: new Date(Date.now() + 3600000),
           timeUntilResetMs: 3600000,
           lastCheckedAt: new Date(),
@@ -340,6 +346,8 @@ describe('daemon', () => {
           isLimited: false,
           fiveHourResetsAt: null,
           weeklyResetsAt: null,
+          monthlyLimited: false,
+          monthlyResetsAt: null,
           nextResetAt: null,
           timeUntilResetMs: null,
           lastCheckedAt: new Date(),

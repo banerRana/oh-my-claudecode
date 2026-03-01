@@ -6,10 +6,11 @@
  * Ported from oh-my-opencode's boulder-state.
  */
 
-import { existsSync, readFileSync, writeFileSync, mkdirSync, readdirSync, statSync, unlinkSync } from 'fs';
+import { existsSync, readFileSync, mkdirSync, readdirSync, statSync, unlinkSync } from 'fs';
 import { dirname, join, basename } from 'path';
 import type { BoulderState, PlanProgress, PlanSummary } from './types.js';
 import { BOULDER_DIR, BOULDER_FILE, PLANNER_PLANS_DIR, PLAN_EXTENSION } from './constants.js';
+import { atomicWriteSync } from '../../lib/atomic-write.js';
 
 /**
  * Get the full path to the boulder state file
@@ -48,7 +49,7 @@ export function writeBoulderState(directory: string, state: BoulderState): boole
       mkdirSync(dir, { recursive: true });
     }
 
-    writeFileSync(filePath, JSON.stringify(state, null, 2), 'utf-8');
+    atomicWriteSync(filePath, JSON.stringify(state, null, 2));
     return true;
   } catch {
     return false;
@@ -79,11 +80,12 @@ export function clearBoulderState(directory: string): boolean {
   const filePath = getBoulderFilePath(directory);
 
   try {
-    if (existsSync(filePath)) {
-      unlinkSync(filePath);
-    }
+    unlinkSync(filePath);
     return true;
-  } catch {
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      return true; // Already gone — success
+    }
     return false;
   }
 }
@@ -157,11 +159,14 @@ export function createBoulderState(
   planPath: string,
   sessionId: string
 ): BoulderState {
+  const now = new Date().toISOString();
   return {
     active_plan: planPath,
-    started_at: new Date().toISOString(),
+    started_at: now,
     session_ids: [sessionId],
     plan_name: getPlanName(planPath),
+    active: true,
+    updatedAt: now,
   };
 }
 

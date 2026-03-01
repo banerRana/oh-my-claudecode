@@ -69,6 +69,31 @@ Output: Code review report with:
 )
 ```
 
+## External Consultation (Optional)
+
+The code-reviewer agent MAY consult a Claude Task agent for cross-validation.
+
+### Protocol
+1. **Form your OWN review FIRST** - Complete the review independently
+2. **Consult for validation** - Cross-check findings via a Claude Task agent
+3. **Critically evaluate** - Never blindly adopt external findings
+4. **Graceful fallback** - Never block if delegation is unavailable
+
+### When to Consult
+- Security-sensitive code changes
+- Complex architectural patterns
+- Unfamiliar codebases or languages
+- High-stakes production code
+
+### When to Skip
+- Simple refactoring
+- Well-understood patterns
+- Time-critical reviews
+- Small, isolated changes
+
+### Tool Usage
+Use `Task(subagent_type="oh-my-claudecode:code-reviewer", ...)` for cross-validation.
+
 ## Output Format
 
 ```

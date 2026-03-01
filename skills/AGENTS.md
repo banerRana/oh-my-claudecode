@@ -1,9 +1,9 @@
 <!-- Parent: ../AGENTS.md -->
-<!-- Generated: 2026-01-28 | Updated: 2026-01-31 -->
+<!-- Generated: 2026-01-28 | Updated: 2026-02-24 -->
 
 # skills
 
-37 skill definitions for workflow automation and specialized behaviors.
+40 skill directories for workflow automation and specialized behaviors (42 runtime skill names including compatibility aliases).
 
 ## Purpose
 
@@ -22,9 +22,8 @@ Skills are reusable workflow templates that can be invoked via `/oh-my-claudecod
 | `ultrawork/SKILL.md` | ultrawork | Maximum parallel agent execution |
 | `ralph/SKILL.md` | ralph | Persistence until verified complete |
 | `ultrapilot/SKILL.md` | ultrapilot | Parallel autopilot with file ownership |
-| `swarm/SKILL.md` | swarm | N coordinated agents with task claiming |
+| `team/SKILL.md` | team (+ `swarm` alias) | N coordinated agents with task claiming |
 | `pipeline/SKILL.md` | pipeline | Sequential agent chaining |
-| `ecomode/SKILL.md` | ecomode | Token-efficient parallel execution |
 | `ultraqa/SKILL.md` | ultraqa | QA cycling until goal met |
 
 ### Planning Skills
@@ -32,7 +31,7 @@ Skills are reusable workflow templates that can be invoked via `/oh-my-claudecod
 | File | Skill | Purpose |
 |-----------|-------|---------|
 | `plan/SKILL.md` | plan | Strategic planning with interview workflow |
-| `ralplan/SKILL.md` | ralplan | Iterative planning (Planner+Architect+Critic) |
+| `ralplan/SKILL.md` | ralplan | Iterative planning (Planner+Architect+Critic) with RALPLAN-DR structured deliberation (`--deliberate` for high-risk) |
 | `review/SKILL.md` | review | Review plan with Critic |
 | `analyze/SKILL.md` | analyze | Deep analysis and investigation |
 | `ralph-init/SKILL.md` | ralph-init | Initialize PRD for structured ralph |
@@ -52,7 +51,7 @@ Skills are reusable workflow templates that can be invoked via `/oh-my-claudecod
 |-----------|-------|---------|
 | `deepsearch/SKILL.md` | deepsearch | Thorough codebase search |
 | `deepinit/SKILL.md` | deepinit | Generate hierarchical AGENTS.md |
-| `research/SKILL.md` | research | Parallel scientist orchestration |
+| `sciomc/SKILL.md` | sciomc | Parallel scientist orchestration |
 
 ### Utility Skills
 
@@ -67,7 +66,6 @@ Skills are reusable workflow templates that can be invoked via `/oh-my-claudecod
 | `omc-setup/SKILL.md` | omc-setup | One-time setup wizard |
 | `mcp-setup/SKILL.md` | mcp-setup | Configure MCP servers |
 | `help/SKILL.md` | help | Usage guide |
-| `learn-about-omc/SKILL.md` | learn-about-omc | Usage pattern analysis |
 | `skill/SKILL.md` | skill | Manage local skills |
 
 ### Domain Skills
@@ -76,10 +74,9 @@ Skills are reusable workflow templates that can be invoked via `/oh-my-claudecod
 |-----------|-------|---------|
 | `frontend-ui-ux/SKILL.md` | frontend-ui-ux | Designer-developer aesthetic |
 | `git-master/SKILL.md` | git-master | Git expertise, atomic commits |
-| `project-session-manager/SKILL.md` | psm | Isolated dev environments |
+| `project-session-manager/SKILL.md` | project-session-manager (+ `psm` alias) | Isolated dev environments |
 | `writer-memory/SKILL.md` | writer-memory | Agentic memory for writers |
 | `release/SKILL.md` | release | Automated release workflow |
-| `local-skills-setup/SKILL.md` | local-skills-setup | Manage local skills |
 
 ## For AI Agents
 
@@ -179,7 +176,7 @@ None - pure markdown files.
 
 | Category | Skills | Trigger Keywords |
 |----------|--------|------------------|
-| Execution | autopilot, ultrawork, ralph, ultrapilot, swarm, pipeline, ecomode | "autopilot", "ulw", "ralph", "swarm", "eco" |
+| Execution | autopilot, ultrawork, ralph, ultrapilot, swarm, pipeline | "autopilot", "ulw", "ralph", "swarm", "eco" |
 | Planning | plan, ralplan, review, analyze, ralph-init | "plan this", "analyze" |
 | Quality | code-review, security-review, tdd, build-fix | "review", "security", "tdd" |
 | Exploration | deepsearch, deepinit, research | "search", "research" |
@@ -199,4 +196,7 @@ Some skills activate automatically based on context:
 | git-master | Git operations detected |
 | cancel | "stop", "cancel", "abort" |
 
-<!-- MANUAL: -->
+<!-- MANUAL:
+- Team runtime wait semantics: `omc_run_team_wait.timeout_ms` only limits the wait call and does not stop workers.
+- `timeoutSeconds` is removed from `omc_run_team_start`; use explicit `omc_run_team_cleanup` for intentional worker pane termination.
+-->

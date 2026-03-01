@@ -10,11 +10,11 @@
 
 import * as path from 'path';
 import { execSync } from 'child_process';
-import * as os from 'os';
+import { getOmcRoot } from '../../lib/worktree-paths.js';
+import { getClaudeConfigDir } from '../../utils/paths.js';
 import { existsSync, readFileSync } from 'fs';
 import {
   HOOK_NAME,
-  ALLOWED_PATH_PREFIX,
   ALLOWED_PATH_PATTERNS,
   WARNED_EXTENSIONS,
   WRITE_EDIT_TOOLS,
@@ -33,6 +33,8 @@ import {
   setPriorityContext,
 } from '../notepad/index.js';
 import { logAuditEntry } from './audit.js';
+import { getWorktreeRoot } from '../../lib/worktree-paths.js';
+import { toForwardSlash } from '../../utils/paths.js';
 
 // Re-export constants
 export * from './constants.js';
@@ -65,8 +67,8 @@ function getEnforcementLevel(directory: string): EnforcementLevel {
     return enforcementCache.level;
   }
 
-  const localConfig = path.join(directory, '.omc', 'config.json');
-  const globalConfig = path.join(os.homedir(), '.claude', '.omc-config.json');
+  const localConfig = path.join(getOmcRoot(directory), 'config.json');
+  const globalConfig = path.join(getClaudeConfigDir(), '.omc-config.json');
 
   let level: EnforcementLevel = 'warn'; // Default
 
@@ -124,10 +126,25 @@ interface GitFileStat {
 /**
  * Check if a file path is allowed for direct orchestrator modification
  */
-export function isAllowedPath(filePath: string): boolean {
+export function isAllowedPath(filePath: string, directory?: string): boolean {
   if (!filePath) return true;
-  // Check against all allowed patterns
-  return ALLOWED_PATH_PATTERNS.some(pattern => pattern.test(filePath));
+  // Convert backslashes first (so path.normalize resolves .. on all platforms),
+  // then normalize to collapse .. segments, then ensure forward slashes.
+  const normalized = toForwardSlash(path.normalize(toForwardSlash(filePath)));
+  // Reject explicit traversal that escapes (e.g. "../foo")
+  if (normalized.startsWith('../') || normalized === '..') return false;
+  // Fast path: check relative patterns
+  if (ALLOWED_PATH_PATTERNS.some(pattern => pattern.test(normalized))) return true;
+  // Absolute path: strip worktree root, then re-check
+  if (path.isAbsolute(filePath)) {
+    const root = directory ? getWorktreeRoot(directory) : getWorktreeRoot();
+    if (root) {
+      const rel = toForwardSlash(path.relative(root, filePath));
+      if (rel.startsWith('../') || rel === '..' || path.isAbsolute(rel)) return false;
+      return ALLOWED_PATH_PATTERNS.some(pattern => pattern.test(rel));
+    }
+  }
+  return false;
 }
 
 /**
@@ -359,11 +376,13 @@ export function processOrchestratorPreTool(input: ToolExecuteInput): ToolExecute
     return { continue: true };
   }
 
-  // Extract file path from tool input
-  const filePath = (toolInput?.filePath ?? toolInput?.path ?? toolInput?.file) as string | undefined;
+  // Extract file path from tool input.
+  // Claude Code sends file_path (snake_case) for Write/Edit tools and notebook_path for NotebookEdit.
+  // toolInput is the tool's own parameter object, NOT normalized by normalizeHookInput.
+  const filePath = (toolInput?.file_path ?? toolInput?.filePath ?? toolInput?.path ?? toolInput?.file ?? toolInput?.notebook_path) as string | undefined;
 
   // Allow if path is in allowed prefix
-  if (!filePath || isAllowedPath(filePath)) {
+  if (!filePath || isAllowedPath(filePath, directory)) {
     // Log allowed operation
     if (filePath) {
       logAuditEntry({
@@ -424,7 +443,7 @@ export function processOrchestratorPostTool(
   if (isWriteEditTool(toolName)) {
     const filePath = (toolInput?.filePath ?? toolInput?.path ?? toolInput?.file) as string | undefined;
 
-    if (filePath && !isAllowedPath(filePath)) {
+    if (filePath && !isAllowedPath(filePath, workDir)) {
       return {
         continue: true,
         modifiedOutput: output + DIRECT_WORK_REMINDER,
@@ -507,7 +526,7 @@ export function checkBoulderContinuation(directory: string): {
 /**
  * Create omc orchestrator hook handlers
  */
-export function createSisyphusOrchestratorHook(directory: string) {
+export function createOmcOrchestratorHook(directory: string) {
   return {
     /**
      * Hook name identifier

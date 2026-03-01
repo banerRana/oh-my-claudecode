@@ -4,7 +4,7 @@
 
 Multi-agent orchestration system for Claude Code CLI, providing intelligent delegation, parallel execution, and IDE-like capabilities through LSP/AST integration.
 
-**Version:** 3.8.17
+**Version:** 4.0.0
 **Purpose:** Transform Claude Code into a conductor of specialized AI agents
 **Inspired by:** oh-my-zsh / oh-my-opencode
 
@@ -12,11 +12,11 @@ Multi-agent orchestration system for Claude Code CLI, providing intelligent dele
 
 oh-my-claudecode enhances Claude Code with:
 
-- **32 specialized agents** across multiple domains with 3-tier model routing (Haiku/Sonnet/Opus)
+- **28 specialized agents** across multiple domains with 3-tier model routing (Haiku/Sonnet/Opus)
 - **37 skills** for workflow automation and specialized behaviors
 - **31 hooks** for event-driven execution modes and enhancements
 - **15 custom tools** including 12 LSP, 2 AST, and Python REPL
-- **Execution modes**: autopilot, ultrawork, ralph, ultrapilot, swarm, pipeline, ecomode
+- **Execution modes**: autopilot, ultrawork, ralph, ultrapilot, swarm, pipeline
 - **MCP integration** with plugin-scoped tool discovery and skill loading
 
 ## Key Files
@@ -27,7 +27,7 @@ oh-my-claudecode enhances Claude Code with:
 | `tsconfig.json` | TypeScript configuration |
 | `CHANGELOG.md` | Version history and release notes |
 | `docs/CLAUDE.md` | End-user orchestration instructions (installed to user projects) |
-| `src/index.ts` | Main entry point - exports `createSisyphusSession()` |
+| `src/index.ts` | Main entry point - exports `createOmcSession()` |
 | `.mcp.json` | MCP server configuration for plugin discovery |
 | `.claude-plugin/plugin.json` | Claude Code plugin manifest |
 
@@ -36,7 +36,7 @@ oh-my-claudecode enhances Claude Code with:
 | Directory | Purpose | Related AGENTS.md |
 |-----------|---------|-------------------|
 | `src/` | TypeScript source code - core library | `src/AGENTS.md` |
-| `agents/` | Markdown prompt templates for 32 agents (see `agents/templates/` for guidelines) | - |
+| `agents/` | Markdown prompt templates for 28 agents (see `agents/templates/` for guidelines) | - |
 | `skills/` | 37 skill definitions for workflows | `skills/AGENTS.md` |
 | `commands/` | 31 slash command definitions (mirrors skills) | - |
 | `scripts/` | Build scripts, utilities, and automation | - |
@@ -55,15 +55,15 @@ oh-my-claudecode enhances Claude Code with:
    |-----------|-------------|-------|
    | Code changes | `executor` / `executor-low` / `executor-high` | sonnet/haiku/opus |
    | Analysis | `architect` / `architect-medium` / `architect-low` | opus/sonnet/haiku |
-   | Search | `explore` / `explore-medium` / `explore-high` | haiku/sonnet/opus |
+   | Search | `explore` / `explore-high` | haiku/opus |
    | UI/UX | `designer` / `designer-low` / `designer-high` | sonnet/haiku/opus |
    | Docs | `writer` | haiku |
    | Security | `security-reviewer` / `security-reviewer-low` | opus/haiku |
-   | Build errors | `build-fixer` / `build-fixer-low` | sonnet/haiku |
-   | Testing | `qa-tester` / `qa-tester-high` | sonnet/opus |
-   | Code review | `code-reviewer` / `code-reviewer-low` | opus/haiku |
-   | TDD | `tdd-guide` / `tdd-guide-low` | sonnet/haiku |
-   | Data analysis | `scientist` / `scientist-low` / `scientist-high` | sonnet/haiku/opus |
+   | Build errors | `build-fixer` | sonnet |
+   | Testing | `qa-tester` | sonnet |
+   | Code review | `code-reviewer` | opus |
+   | TDD | `test-engineer` / `test-engineer-low` | sonnet/haiku |
+   | Data analysis | `scientist` / `scientist-high` | sonnet/opus |
 
 2. **LSP/AST Tools**: Use IDE-like tools for code intelligence:
    - `lsp_hover` - Type info and documentation at position
@@ -160,8 +160,8 @@ npm run test:coverage # Coverage report
 
 ```typescript
 // Entry point
-import { createSisyphusSession } from 'oh-my-claudecode';
-const session = createSisyphusSession();
+import { createOmcSession } from 'oh-my-claudecode';
+const session = createOmcSession();
 
 // Agent registration
 import { getAgentDefinitions } from './agents/definitions';
@@ -180,7 +180,7 @@ import { allCustomTools, lspTools, astTools } from './tools';
 │                  oh-my-claudecode (OMC)                     │
 │  ┌─────────────┬─────────────┬─────────────┬─────────────┐  │
 │  │   Skills    │   Agents    │    Tools    │   Hooks     │  │
-│  │ (37 skills) │ (32 agents) │(LSP/AST/REPL)│ (31 hooks)  │  │
+│  │ (37 skills) │ (28 agents) │(LSP/AST/REPL)│ (31 hooks)  │  │
 │  └─────────────┴─────────────┴─────────────┴─────────────┘  │
 │  ┌─────────────────────────────────────────────────────────┐│
 │  │              Features Layer                             ││
@@ -190,14 +190,14 @@ import { allCustomTools, lspTools, astTools } from './tools';
 └─────────────────────────────────────────────────────────────┘
 ```
 
-## Agent Summary (32 Total)
+## Agent Summary (28 Total)
 
 ### Base Agents (12)
 
 | Agent | Model | Purpose |
 |-------|-------|---------|
 | architect | opus | Architecture, debugging, root cause analysis |
-| researcher | sonnet | Documentation, external API research |
+| document-specialist | sonnet | Documentation, external API research |
 | explore | haiku | Fast codebase pattern search |
 | executor | sonnet | Focused task implementation |
 | designer | sonnet | UI/UX, component design |
@@ -215,16 +215,16 @@ import { allCustomTools, lspTools, astTools } from './tools';
 |-------|-------|---------|
 | security-reviewer | opus | Security vulnerability detection and audits |
 | build-fixer | sonnet | Build/type error resolution (multi-language) |
-| tdd-guide | sonnet | Test-driven development workflow |
+| test-engineer | sonnet | Test-driven development workflow |
 | code-reviewer | opus | Expert code review and quality assessment |
 
-### Tiered Variants (16)
+### Tiered Variants (12)
 
 | Tier | Agents |
 |------|--------|
-| **LOW** (Haiku) | `architect-low`, `executor-low`, `researcher-low`, `designer-low`, `scientist-low`, `security-reviewer-low`, `build-fixer-low`, `tdd-guide-low`, `code-reviewer-low` (9) |
-| **MEDIUM** (Sonnet) | `architect-medium`, `explore-medium` (2) |
-| **HIGH** (Opus) | `executor-high`, `designer-high`, `explore-high`, `qa-tester-high`, `scientist-high` (5) |
+| **LOW** (Haiku) | `architect-low`, `executor-low`, `designer-low`, `security-reviewer-low`, `test-engineer-low` (5) |
+| **MEDIUM** (Sonnet) | `architect-medium` (1) |
+| **HIGH** (Opus) | `executor-high`, `designer-high`, `explore-high`, `scientist-high`, `deep-executor` (5) |
 
 ## Execution Modes
 
@@ -236,11 +236,10 @@ import { allCustomTools, lspTools, astTools } from './tools';
 | ultrapilot | "ultrapilot", "parallel build" | Parallel autopilot with file ownership |
 | swarm | "swarm N agents" | N coordinated agents with SQLite task claiming |
 | pipeline | "pipeline" | Sequential agent chaining with data passing |
-| ecomode | "eco", "efficient", "budget" | Token-efficient parallel execution |
 
 ## Skills (37)
 
-Key skills: `autopilot`, `ultrawork`, `ralph`, `ultrapilot`, `plan`, `ralplan`, `deepsearch`, `deepinit`, `frontend-ui-ux`, `git-master`, `tdd`, `security-review`, `code-review`, `research`, `analyze`, `swarm`, `pipeline`, `ecomode`, `cancel`, `learner`, `note`, `hud`, `doctor`, `omc-setup`, `mcp-setup`, `build-fix`, `ultraqa`
+Key skills: `autopilot`, `ultrawork`, `ralph`, `ultrapilot`, `plan`, `ralplan`, `deepsearch`, `deepinit`, `frontend-ui-ux`, `git-master`, `tdd`, `security-review`, `code-review`, `sciomc`, `external-context`, `analyze`, `swarm`, `pipeline`, `cancel`, `learner`, `note`, `hud`, `doctor`, `omc-setup`, `mcp-setup`, `build-fix`, `ultraqa`
 
 ## LSP/AST Tools
 
@@ -350,3 +349,15 @@ Settings in `~/.claude/.omc-config.json`:
 ```
 
 <!-- MANUAL: Project-specific notes below this line are preserved on regeneration -->
+
+<!-- OMX:RUNTIME:START -->
+<session_context>
+**Session:** omx-1771026854926-3tbxcj | 2026-02-13T23:54:14.929Z
+
+**Compaction Protocol:**
+Before context compaction, preserve critical state:
+1. Write progress checkpoint via state_write MCP tool
+2. Save key decisions to notepad via notepad_write_working
+3. If context is >80% full, proactively checkpoint state
+</session_context>
+<!-- OMX:RUNTIME:END -->

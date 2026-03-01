@@ -2,13 +2,12 @@
  * Tests for tmux-detector.ts
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import {
   analyzePaneContent,
   isTmuxAvailable,
   listTmuxPanes,
   capturePaneContent,
-  scanForBlockedPanes,
   formatBlockedPanesSummary,
 } from '../../features/rate-limit-wait/tmux-detector.js';
 import type { BlockedPane } from '../../features/rate-limit-wait/types.js';
@@ -114,6 +113,26 @@ describe('tmux-detector', () => {
       const result = analyzePaneContent(content);
 
       expect(result.confidence).toBeGreaterThan(0.6);
+    });
+
+    it('should detect Claude limit screen phrasing: hit your limit + numeric menu', () => {
+      const content = `
+        Claude Code
+        You've hit your limit · resets Feb 17 at 2pm (Asia/Seoul)
+        What do you want to do?
+
+        ❯ 1. Stop and wait for limit to reset
+          2. Request more
+
+        Enter to confirm · Esc to cancel
+      `;
+
+      const result = analyzePaneContent(content);
+
+      expect(result.hasClaudeCode).toBe(true);
+      expect(result.hasRateLimitMessage).toBe(true);
+      expect(result.isBlocked).toBe(true);
+      expect(result.confidence).toBeGreaterThanOrEqual(0.6);
     });
   });
 

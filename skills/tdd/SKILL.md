@@ -47,12 +47,12 @@ Write code before test? DELETE IT. Start over. No exceptions.
 
 Before each implementation:
 ```bash
-npm test  # Should have ONE new failure
+# Run the project's test command - should have ONE new failure
 ```
 
 After implementation:
 ```bash
-npm test  # New test should pass, all others still pass
+# Run the project's test command - new test should pass, all others still pass
 ```
 
 ## Output Format
@@ -75,5 +75,30 @@ Result: [run result showing pass]
 Changes: [what was cleaned up]
 Result: [tests still pass]
 ```
+
+## External Consultation (Optional)
+
+The test-engineer agent MAY consult a Claude Task agent for test strategy validation.
+
+### Protocol
+1. **Form your OWN test strategy FIRST** - Design tests independently
+2. **Consult for validation** - Cross-check test coverage strategy via a Claude Task agent
+3. **Critically evaluate** - Never blindly adopt external suggestions
+4. **Graceful fallback** - Never block if delegation is unavailable
+
+### When to Consult
+- Complex domain logic requiring comprehensive test coverage
+- Edge case identification for critical paths
+- Test architecture for large features
+- Unfamiliar testing patterns
+
+### When to Skip
+- Simple unit tests
+- Well-understood testing patterns
+- Time-critical TDD cycles
+- Small, isolated functionality
+
+### Tool Usage
+Use `Task(subagent_type="oh-my-claudecode:test-engineer", ...)` for test strategy cross-validation.
 
 **Remember:** The discipline IS the value. Shortcuts destroy the benefit.

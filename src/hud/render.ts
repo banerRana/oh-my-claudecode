@@ -7,6 +7,7 @@
 import type { HudRenderContext, HudConfig } from './types.js';
 import { DEFAULT_HUD_CONFIG } from './types.js';
 import { bold, dim } from './colors.js';
+import { stringWidth, getCharWidth } from '../utils/string-width.js';
 import { renderRalph } from './elements/ralph.js';
 import { renderAgentsByFormat, renderAgentsMultiLine } from './elements/agents.js';
 import { renderTodosWithCurrent } from './elements/todos.js';
@@ -14,21 +15,77 @@ import { renderSkills, renderLastSkill } from './elements/skills.js';
 import { renderContext, renderContextWithBar } from './elements/context.js';
 import { renderBackground } from './elements/background.js';
 import { renderPrd } from './elements/prd.js';
-import { renderRateLimits, renderRateLimitsWithBar } from './elements/limits.js';
+import { renderRateLimits, renderRateLimitsWithBar, renderCustomBuckets } from './elements/limits.js';
 import { renderPermission } from './elements/permission.js';
 import { renderThinking } from './elements/thinking.js';
 import { renderSession } from './elements/session.js';
+import { renderPromptTime } from './elements/prompt-time.js';
 import { renderAutopilot } from './elements/autopilot.js';
 import { renderCwd } from './elements/cwd.js';
-import {
-  getAnalyticsDisplay,
-  renderAnalyticsLineWithConfig,
-  getSessionInfo,
-  getSessionHealthAnalyticsData,
-  renderBudgetWarning,
-  renderCacheEfficiency
-} from './analytics-display.js';
-import type { SessionHealth, HudElementConfig } from './types.js';
+import { renderGitRepo, renderGitBranch } from './elements/git.js';
+import { renderModel } from './elements/model.js';
+import { renderApiKeySource } from './elements/api-key-source.js';
+import { renderCallCounts } from './elements/call-counts.js';
+import { renderContextLimitWarning } from './elements/context-warning.js';
+
+/**
+ * ANSI escape sequence regex (matches SGR and other CSI sequences).
+ * Used to skip escape codes when measuring/truncating visible width.
+ */
+const ANSI_REGEX = /\x1b\[[0-9;]*[a-zA-Z]|\x1b\][^\x07]*\x07/;
+
+/**
+ * Truncate a single line to a maximum visual width, preserving ANSI escape codes.
+ * When the visible content exceeds maxWidth columns, it is truncated with an ellipsis.
+ *
+ * @param line - The line to truncate (may contain ANSI codes)
+ * @param maxWidth - Maximum visual width in terminal columns
+ * @returns Truncated line that fits within maxWidth visible columns
+ */
+export function truncateLineToMaxWidth(line: string, maxWidth: number): string {
+  if (maxWidth <= 0) return '';
+  if (stringWidth(line) <= maxWidth) return line;
+
+  const ELLIPSIS = '...';
+  const ellipsisWidth = 3;
+  const targetWidth = Math.max(0, maxWidth - ellipsisWidth);
+
+  let visibleWidth = 0;
+  let result = '';
+  let hasAnsi = false;
+  let i = 0;
+
+  while (i < line.length) {
+    // Check for ANSI escape sequence at current position
+    const remaining = line.slice(i);
+    const ansiMatch = remaining.match(ANSI_REGEX);
+
+    if (ansiMatch && ansiMatch.index === 0) {
+      // Pass through the entire ANSI sequence without counting width
+      result += ansiMatch[0];
+      hasAnsi = true;
+      i += ansiMatch[0].length;
+      continue;
+    }
+
+    // Read the full code point (handles surrogate pairs for astral-plane chars like emoji)
+    const codePoint = line.codePointAt(i)!;
+    const codeUnits = codePoint > 0xFFFF ? 2 : 1;
+    const char = line.slice(i, i + codeUnits);
+    const charWidth = getCharWidth(char);
+
+    if (visibleWidth + charWidth > targetWidth) break;
+
+    result += char;
+    visibleWidth += charWidth;
+    i += codeUnits;
+  }
+
+  // Append ANSI reset before ellipsis if any escape codes were seen,
+  // to prevent color/style bleed into subsequent terminal output
+  const reset = hasAnsi ? '\x1b[0m' : '';
+  return result + reset + ELLIPSIS;
+}
 
 /**
  * Limit output lines to prevent input field shrinkage (Issue #222).
@@ -48,38 +105,6 @@ export function limitOutputLines(lines: string[], maxLines?: number): string[] {
 }
 
 /**
- * Render session health analytics respecting config toggles.
- * Composes output from getSessionHealthAnalyticsData() based on showCache/showCost flags.
- */
-function renderSessionHealthAnalyticsWithConfig(
-  sessionHealth: SessionHealth,
-  enabledElements: HudElementConfig
-): string {
-  const data = getSessionHealthAnalyticsData(sessionHealth);
-  const parts: string[] = [];
-
-  // Cost indicator and cost amount (respects showCost)
-  if (enabledElements.showCost) {
-    parts.push(data.costIndicator, data.cost);
-  }
-
-  // Tokens always shown (not a cost/cache thing)
-  parts.push(data.tokens);
-
-  // Cache (respects showCache)
-  if (enabledElements.showCache) {
-    parts.push(`Cache: ${data.cache}`);
-  }
-
-  // Cost per hour (respects showCost)
-  if (enabledElements.showCost && data.costHour) {
-    parts.push(data.costHour);
-  }
-
-  return parts.join(' | ');
-}
-
-/**
  * Render the complete statusline (single or multi-line)
  */
 export async function render(context: HudRenderContext, config: HudConfig): Promise<string> {
@@ -87,56 +112,47 @@ export async function render(context: HudRenderContext, config: HudConfig): Prom
   const detailLines: string[] = [];
   const { elements: enabledElements } = config;
 
-  // Check if analytics preset is active
-  if (config.preset === 'analytics') {
-    const analytics = await getAnalyticsDisplay();
-    const sessionInfo = await getSessionInfo();
+  // Git info line (separate line above HUD)
+  const gitElements: string[] = [];
 
-    // Render analytics-focused layout
-    const lines = [sessionInfo, renderAnalyticsLineWithConfig(analytics, enabledElements.showCost, enabledElements.showCache)];
-
-    // Add SessionHealth analytics if available
-    if (context.sessionHealth) {
-      const healthAnalytics = renderSessionHealthAnalyticsWithConfig(context.sessionHealth, enabledElements);
-      if (healthAnalytics) lines.push(healthAnalytics);
-
-      // Cache efficiency (respects showCache)
-      if (enabledElements.showCache) {
-        const cacheEfficiency = renderCacheEfficiency(context.sessionHealth);
-        if (cacheEfficiency) lines.push(cacheEfficiency);
-      }
-
-      // Budget warning (respects showCost)
-      if (enabledElements.showCost) {
-        const budgetWarning = renderBudgetWarning(context.sessionHealth);
-        if (budgetWarning) lines.push(budgetWarning);
-      }
-    }
-
-    // Add agents if available
-    if (context.activeAgents.length > 0) {
-      const agents = renderAgentsByFormat(context.activeAgents, enabledElements.agentsFormat || 'codes');
-      if (agents) lines.push(agents);
-    }
-
-    // Add todos if available
-    if (enabledElements.todos) {
-      const todos = renderTodosWithCurrent(context.todos);
-      if (todos) lines.push(todos);
-    }
-
-    return limitOutputLines(lines, config.elements.maxOutputLines).join('\n');
-  }
-
-  // Working directory (first element)
+  // Working directory
   if (enabledElements.cwd) {
     const cwdElement = renderCwd(context.cwd, enabledElements.cwdFormat || 'relative');
-    if (cwdElement) elements.push(cwdElement);
+    if (cwdElement) gitElements.push(cwdElement);
   }
 
-  // [OMC] label
+  // Git repository name
+  if (enabledElements.gitRepo) {
+    const gitRepoElement = renderGitRepo(context.cwd);
+    if (gitRepoElement) gitElements.push(gitRepoElement);
+  }
+
+  // Git branch
+  if (enabledElements.gitBranch) {
+    const gitBranchElement = renderGitBranch(context.cwd);
+    if (gitBranchElement) gitElements.push(gitBranchElement);
+  }
+
+  // Model name
+  if (enabledElements.model && context.modelName) {
+    const modelElement = renderModel(context.modelName, enabledElements.modelFormat);
+    if (modelElement) gitElements.push(modelElement);
+  }
+
+  // API key source
+  if (enabledElements.apiKeySource && context.apiKeySource) {
+    const keySource = renderApiKeySource(context.apiKeySource);
+    if (keySource) gitElements.push(keySource);
+  }
+
+  // [OMC#X.Y.Z] label with optional update notification
   if (enabledElements.omcLabel) {
-    elements.push(bold('[OMC]'));
+    const versionTag = context.omcVersion ? `#${context.omcVersion}` : '';
+    if (context.updateAvailable) {
+      elements.push(bold(`[OMC${versionTag}] -> ${context.updateAvailable} omc update`));
+    } else {
+      elements.push(bold(`[OMC${versionTag}]`));
+    }
   }
 
   // Rate limits (5h and weekly)
@@ -145,6 +161,13 @@ export async function render(context: HudRenderContext, config: HudConfig): Prom
       ? renderRateLimitsWithBar(context.rateLimits)
       : renderRateLimits(context.rateLimits);
     if (limits) elements.push(limits);
+  }
+
+  // Custom rate limit buckets
+  if (context.customBuckets) {
+    const thresholdPercent = config.rateLimitsProvider?.resetsAtDisplayThresholdPercent;
+    const custom = renderCustomBuckets(context.customBuckets, thresholdPercent);
+    if (custom) elements.push(custom);
   }
 
   // Permission status indicator (heuristic-based)
@@ -159,19 +182,20 @@ export async function render(context: HudRenderContext, config: HudConfig): Prom
     if (thinking) elements.push(thinking);
   }
 
+  // Prompt submission time
+  if (enabledElements.promptTime) {
+    const prompt = renderPromptTime(context.promptTime);
+    if (prompt) elements.push(prompt);
+  }
+
   // Session health indicator
   if (enabledElements.sessionHealth && context.sessionHealth) {
-    const session = renderSession(context.sessionHealth);
-    if (session) elements.push(session);
-
-    // Add analytics inline if available (respects showCache/showCost)
-    const analytics = renderSessionHealthAnalyticsWithConfig(context.sessionHealth, enabledElements);
-    if (analytics) elements.push(analytics);
-
-    // Add budget warning to detail lines if needed (respects showCost)
-    if (enabledElements.showCost) {
-      const warning = renderBudgetWarning(context.sessionHealth);
-      if (warning) detailLines.push(warning);
+    // Session duration display (session:19m)
+    // If showSessionDuration is explicitly set, use it; otherwise default to true (backward compat)
+    const showDuration = enabledElements.showSessionDuration ?? true;
+    if (showDuration) {
+      const session = renderSession(context.sessionHealth);
+      if (session) elements.push(session);
     }
   }
 
@@ -240,30 +264,50 @@ export async function render(context: HudRenderContext, config: HudConfig): Prom
     if (bg) elements.push(bg);
   }
 
-  // Compose output
-  const headerLine = elements.join(dim(' | '));
+  // Call counts on the right side of the status line (Issue #710)
+  // Controlled by showCallCounts config option (default: true)
+  const showCounts = enabledElements.showCallCounts ?? true;
+  if (showCounts) {
+    const counts = renderCallCounts(
+      context.toolCallCount,
+      context.agentCallCount,
+      context.skillCallCount,
+    );
+    if (counts) elements.push(counts);
+  }
 
-  // Todos on second line (if available)
+  // Context limit warning banner (shown when ctx% >= threshold)
+  const ctxWarning = renderContextLimitWarning(
+    context.contextPercent,
+    config.contextLimitWarning.threshold,
+    config.contextLimitWarning.autoCompact
+  );
+  if (ctxWarning) detailLines.push(ctxWarning);
+
+  // Compose output
+  const outputLines: string[] = [];
+
+  // Git info line (separate line above HUD header)
+  if (gitElements.length > 0) {
+    outputLines.push(gitElements.join(dim(' | ')));
+  }
+
+  // HUD header line
+  const headerLine = elements.join(dim(' | '));
+  outputLines.push(headerLine);
+
+  // Todos on next line (if available)
   if (enabledElements.todos) {
     const todos = renderTodosWithCurrent(context.todos);
     if (todos) detailLines.push(todos);
   }
 
-  // Optionally add analytics line for full/dense presets
-  if (config.preset === 'full' || config.preset === 'dense') {
-    try {
-      const analytics = await getAnalyticsDisplay();
-      detailLines.push(renderAnalyticsLineWithConfig(analytics, enabledElements.showCost, enabledElements.showCache));
+  let finalLines = limitOutputLines([...outputLines, ...detailLines], config.elements.maxOutputLines);
 
-      // Also add cache efficiency if SessionHealth available (respects showCache)
-      if (enabledElements.showCache && context.sessionHealth?.cacheHitRate !== undefined) {
-        const cacheEfficiency = renderCacheEfficiency(context.sessionHealth);
-        if (cacheEfficiency) detailLines.push(cacheEfficiency);
-      }
-    } catch {
-      // Analytics not available, skip
-    }
+  // Apply maxWidth truncation if configured (Issue #1086)
+  if (config.maxWidth && config.maxWidth > 0) {
+    finalLines = finalLines.map(line => truncateLineToMaxWidth(line, config.maxWidth!));
   }
 
-  return limitOutputLines([headerLine, ...detailLines], config.elements.maxOutputLines).join('\n');
+  return finalLines.join('\n');
 }

@@ -74,7 +74,7 @@ Task(
 Enforces model parameter for a single agent delegation call.
 
 ```typescript
-import { enforceModel } from 'oh-my-claude-sisyphus';
+import { enforceModel } from 'oh-my-claudecode';
 
 const input = {
   description: 'Implement feature',
@@ -92,7 +92,7 @@ console.log(result.injected); // true
 Get the default model for an agent type.
 
 ```typescript
-import { getModelForAgent } from 'oh-my-claude-sisyphus';
+import { getModelForAgent } from 'oh-my-claudecode';
 
 getModelForAgent('executor'); // 'sonnet'
 getModelForAgent('executor-low'); // 'haiku'
@@ -104,7 +104,7 @@ getModelForAgent('executor-high'); // 'opus'
 Check if a tool invocation is an agent delegation call.
 
 ```typescript
-import { isAgentCall } from 'oh-my-claude-sisyphus';
+import { isAgentCall } from 'oh-my-claudecode';
 
 isAgentCall('Task', { subagent_type: 'executor', ... }); // true
 isAgentCall('Bash', { command: 'ls' }); // false
@@ -115,7 +115,7 @@ isAgentCall('Bash', { command: 'ls' }); // false
 The enforcer automatically integrates with the pre-tool-use hook:
 
 ```typescript
-import { processHook } from 'oh-my-claude-sisyphus';
+import { processHook } from 'oh-my-claudecode';
 
 const hookInput = {
   toolName: 'Task',
@@ -141,21 +141,17 @@ console.log(result.modifiedInput.model); // 'sonnet'
 | `executor-high` | opus | Complex refactoring |
 | `executor-low` | haiku | Simple changes |
 | `explore` | haiku | Fast code search |
-| `explore-medium` | sonnet | Thorough search |
 | `designer` | sonnet | UI implementation |
 | `designer-high` | opus | Complex UI architecture |
 | `designer-low` | haiku | Simple styling |
-| `researcher` | sonnet | Documentation lookup |
-| `researcher-low` | haiku | Quick docs |
+| `document-specialist` | sonnet | Documentation lookup |
 | `writer` | haiku | Documentation writing |
 | `vision` | sonnet | Image analysis |
 | `planner` | opus | Strategic planning |
 | `critic` | opus | Plan review |
 | `analyst` | opus | Pre-planning analysis |
 | `qa-tester` | sonnet | CLI testing |
-| `qa-tester-high` | opus | Comprehensive QA |
 | `scientist` | sonnet | Data analysis |
-| `scientist-low` | haiku | Quick inspection |
 | `scientist-high` | opus | Complex research |
 
 ## Debug Mode

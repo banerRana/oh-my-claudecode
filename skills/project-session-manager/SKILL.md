@@ -6,7 +6,19 @@ aliases: [psm]
 
 # Project Session Manager (PSM) Skill
 
+`psm` is the compatibility alias for this canonical skill entrypoint.
+
+> **Quick Start:** For simple worktree creation without tmux sessions, use `omc teleport`:
+> ```bash
+> omc teleport #123          # Create worktree for issue/PR
+> omc teleport my-feature    # Create worktree for feature
+> omc teleport list          # List worktrees
+> ```
+> See [Teleport Command](#teleport-command) below for details.
+
 Automate isolated development environments using git worktrees and tmux sessions with Claude Code. Enables parallel work across multiple tasks, projects, and repositories.
+
+Canonical slash command: `/oh-my-claudecode:project-session-manager` (alias: `/oh-my-claudecode:psm`).
 
 ## Commands
 
@@ -48,6 +60,85 @@ Supported formats:
   }
 }
 ```
+
+## Providers
+
+PSM supports multiple issue tracking providers:
+
+| Provider | CLI Required | Reference Formats | Commands |
+|----------|--------------|-------------------|----------|
+| GitHub (default) | `gh` | `owner/repo#123`, `alias#123`, GitHub URLs | review, fix, feature |
+| Jira | `jira` | `PROJ-123` (if PROJ configured), `alias#123` | fix, feature |
+
+### Jira Configuration
+
+To use Jira, add an alias with `jira_project` and `provider: "jira"`:
+
+```json
+{
+  "aliases": {
+    "mywork": {
+      "jira_project": "MYPROJ",
+      "repo": "mycompany/my-project",
+      "local": "~/Workspace/my-project",
+      "default_base": "develop",
+      "provider": "jira"
+    }
+  }
+}
+```
+
+**Important:** The `repo` field is still required for cloning the git repository. Jira tracks issues, but you work in a git repo.
+
+For non-GitHub repos, use `clone_url` instead:
+```json
+{
+  "aliases": {
+    "private": {
+      "jira_project": "PRIV",
+      "clone_url": "git@gitlab.internal:team/repo.git",
+      "local": "~/Workspace/repo",
+      "provider": "jira"
+    }
+  }
+}
+```
+
+### Jira Reference Detection
+
+PSM only recognizes `PROJ-123` format as Jira when `PROJ` is explicitly configured as a `jira_project` in your aliases. This prevents false positives from branch names like `FIX-123`.
+
+### Jira Examples
+
+```bash
+# Fix a Jira issue (MYPROJ must be configured)
+psm fix MYPROJ-123
+
+# Fix using alias (recommended)
+psm fix mywork#123
+
+# Feature development (works same as GitHub)
+psm feature mywork add-webhooks
+
+# Note: 'psm review' is not supported for Jira (no PR concept)
+# Use 'psm fix' for Jira issues
+```
+
+### Jira CLI Setup
+
+Install the Jira CLI:
+```bash
+# macOS
+brew install ankitpokhrel/jira-cli/jira-cli
+
+# Linux
+# See: https://github.com/ankitpokhrel/jira-cli#installation
+
+# Configure (interactive)
+jira init
+```
+
+The Jira CLI handles authentication separately from PSM.
 
 ## Directory Structure
 
@@ -369,12 +460,75 @@ Parse `{{ARGUMENTS}}` to determine:
 | No tmux | Warn and skip session creation |
 | No gh CLI | Error with install instructions |
 
+## Teleport Command
+
+The `omc teleport` command provides a lightweight alternative to full PSM sessions. It creates git worktrees without tmux session management — ideal for quick, isolated development.
+
+### Usage
+
+```bash
+# Create worktree for an issue or PR
+omc teleport #123
+omc teleport owner/repo#123
+omc teleport https://github.com/owner/repo/issues/42
+
+# Create worktree for a feature
+omc teleport my-feature
+
+# List existing worktrees
+omc teleport list
+
+# Remove a worktree
+omc teleport remove issue/my-repo-123
+omc teleport remove --force feat/my-repo-my-feature
+```
+
+### Options
+
+| Flag | Description | Default |
+|------|-------------|---------|
+| `--worktree` | Create worktree (default, kept for compatibility) | `true` |
+| `--path <path>` | Custom worktree root directory | `~/Workspace/omc-worktrees/` |
+| `--base <branch>` | Base branch to create from | `main` |
+| `--json` | Output as JSON | `false` |
+
+### Worktree Layout
+
+```
+~/Workspace/omc-worktrees/
+├── issue/
+│   └── my-repo-123/        # Issue worktrees
+├── pr/
+│   └── my-repo-456/        # PR review worktrees
+└── feat/
+    └── my-repo-my-feature/ # Feature worktrees
+```
+
+### PSM vs Teleport
+
+| Feature | PSM | Teleport |
+|---------|-----|----------|
+| Git worktree | Yes | Yes |
+| Tmux session | Yes | No |
+| Claude Code launch | Yes | No |
+| Session registry | Yes | No |
+| Auto-cleanup | Yes | No |
+| Project aliases | Yes | No (uses current repo) |
+
+Use **PSM** for full managed sessions. Use **teleport** for quick worktree creation.
+
+---
+
 ## Requirements
 
-- `git` with worktree support (v2.5+)
-- `gh` CLI (authenticated)
-- `tmux`
-- `jq` for JSON parsing
+Required:
+- `git` - Version control (with worktree support v2.5+)
+- `jq` - JSON parsing
+- `tmux` - Session management (optional, but recommended)
+
+Optional (per provider):
+- `gh` - GitHub CLI (for GitHub workflows)
+- `jira` - Jira CLI (for Jira workflows)
 
 ## Initialization
 

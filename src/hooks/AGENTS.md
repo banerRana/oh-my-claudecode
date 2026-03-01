@@ -8,7 +8,7 @@
 ## Purpose
 
 Hooks intercept Claude Code events to enable:
-- **Execution modes**: autopilot, ultrawork, ralph, ultrapilot, swarm, pipeline (ecomode via mode-registry)
+- **Execution modes**: autopilot, ultrawork, ralph, ultrapilot, swarm, pipeline (mode-registry)
 - **Validation**: thinking blocks, empty messages, comments
 - **Recovery**: edit errors, session recovery, context window
 - **Enhancement**: rules injection, directory READMEs, notepad
@@ -33,7 +33,7 @@ Hooks intercept Claude Code events to enable:
 | `ultrapilot/` | Parallel autopilot with file ownership | "ultrapilot" |
 | `swarm/` | N coordinated agents with task claiming | "swarm N agents" |
 | `ultraqa/` | QA cycling until goal met | test failures |
-| `mode-registry/` | Tracks active execution mode (incl. ecomode) | internal |
+| `mode-registry/` | Tracks active execution mode  | internal |
 | `persistent-mode/` | Maintains mode state across sessions | internal |
 
 ### Validation Hooks
@@ -214,6 +214,38 @@ writeState('autopilot-state', state);
 | `Stop` | Before session ends | Continuation enforcement |
 | `PreToolUse` | Before tool execution | Permission validation |
 | `PostToolUse` | After tool execution | Error recovery, rules injection |
+
+### Stop Hook Output Contract
+
+The persistent-mode stop hook uses **soft enforcement**:
+
+```typescript
+// Stop hook ALWAYS returns continue: true
+// Enforcement is via message injection, not blocking
+return {
+  continue: true,
+  message: result.message || undefined  // Injected into context
+};
+```
+
+**Why soft enforcement**: Hard blocking (`continue: false`) would prevent context compaction and could deadlock Claude Code.
+
+**Bypass conditions** (checked first, allow stopping):
+1. `context-limit` - Context window exhausted, must allow compaction
+2. `user-abort` - User explicitly requested stop
+
+**Mode priority** (checked after bypass, may inject continuation message):
+1. Ralph (explicit persistence loop)
+2. Autopilot (full orchestration)
+3. Ultrapilot (parallel workers)
+4. Swarm (coordinated agents)
+5. Pipeline (sequential stages)
+6. UltraQA (test cycling)
+7. Ultrawork (parallel execution)
+
+**Session isolation**: Hooks only enforce for matching `session_id`. Stale states (>2 hours) are ignored.
+
+**Mode completion criteria**: Hook blocks while `state.active === true && state.session_id === currentSession && !isStaleState()`. Running `/cancel` sets `active: false` and removes state files.
 
 ## State Files
 
