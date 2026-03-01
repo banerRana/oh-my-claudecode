@@ -51,7 +51,8 @@ Active modes are still cancelled in dependency order:
 6. Ultrapilot (standalone)
 7. Pipeline (standalone)
 8. Team (Claude Code native)
-9. Plan Consensus (standalone)
+9. OMC Teams (tmux CLI workers)
+10. Plan Consensus (standalone)
 
 ## Force Clear All
 
@@ -70,6 +71,7 @@ Steps under the hood:
 2. `state_clear` runs once per session to drop that session’s files.
 3. A global `state_clear` without `session_id` removes legacy files under `.omc/state/*.json`, `.omc/state/swarm*.db`, and compatibility artifacts (see list).
 4. Team artifacts (`~/.claude/teams/*/`, `~/.claude/tasks/*/`, `.omc/state/team-state.json`) are best-effort cleared as part of the legacy fallback.
+   - Cancel for native team does NOT affect omc-teams state, and vice versa.
 
 Every `state_clear` command honors the `session_id` argument, so even force mode still uses the session-aware paths first before deleting legacy files.
 
@@ -88,6 +90,7 @@ Legacy compatibility list (removed only under `--force`/`--all`):
 - `.omc/state/ultrapilot-state.json`
 - `.omc/state/ultrapilot-ownership.json`
 - `.omc/state/pipeline-state.json`
+- `.omc/state/omc-teams-state.json`
 - `.omc/state/plan-consensus.json`
 - `.omc/state/ralplan-state.json`
 - `.omc/state/boulder.json`

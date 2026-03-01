@@ -124,6 +124,7 @@ export function isActiveModeRunning(directory: string): boolean {
     'ralph-state.json',
     'ultrawork-state.json',
     'team-state.json',
+    'omc-teams-state.json',
   ];
 
   for (const stateFile of activeStateFiles) {
