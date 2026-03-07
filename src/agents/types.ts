@@ -1,11 +1,12 @@
 /**
- * Agent Types for Oh-My-Claude-Sisyphus
+ * Agent Types for Oh-My-ClaudeCode
  *
  * Defines types for agent configuration and metadata used in dynamic prompt generation.
  * Ported from oh-my-opencode's agent type system.
  */
 
-export type ModelType = 'sonnet' | 'opus' | 'haiku' | 'inherit';
+import type { ModelType } from '../shared/types.js';
+export type { ModelType };
 
 /**
  * Cost tier for agent usage
@@ -37,7 +38,7 @@ export interface DelegationTrigger {
 
 /**
  * Metadata about an agent for dynamic prompt generation
- * This enables Sisyphus to build delegation tables automatically
+ * This enables OMC to build delegation tables automatically
  */
 export interface AgentPromptMetadata {
   /** Agent category */
@@ -68,8 +69,10 @@ export interface AgentConfig {
   description: string;
   /** System prompt for the agent */
   prompt: string;
-  /** Tools the agent can use */
-  tools: string[];
+  /** Tools the agent can use (optional - all tools allowed by default if omitted) */
+  tools?: string[];
+  /** Tools explicitly disallowed for this agent */
+  disallowedTools?: string[];
   /** Model to use (defaults to sonnet) */
   model?: ModelType;
   /** Default model for this agent (explicit tier mapping) */
@@ -120,7 +123,7 @@ export type AgentOverrides = Partial<Record<string, AgentOverrideConfig>>;
 export type AgentFactory = (model?: string) => AgentConfig;
 
 /**
- * Available agent descriptor for Sisyphus prompt building
+ * Available agent descriptor for OMC prompt building
  */
 export interface AvailableAgent {
   name: string;

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { mkdtempSync, rmSync } from 'fs';
+import { mkdtempSync, rmSync, utimesSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import {
@@ -8,6 +8,7 @@ import {
   canResumeAutopilot,
   resumeAutopilot,
   formatCancelMessage,
+  STALE_STATE_MAX_AGE_MS,
   type CancelResult
 } from '../cancel.js';
 import {
@@ -175,6 +176,22 @@ describe('AutopilotCancel', () => {
       expect(state?.active).toBe(false);
       expect(state?.originalIdea).toBe('test idea');
     });
+
+    it('should not clear other session ralph/ultraqa state when sessionId provided', () => {
+      const sessionId = 'session-a';
+      initAutopilot(testDir, 'test idea', sessionId);
+
+      vi.mocked(ralphLoop.readRalphState).mockReturnValueOnce(null as any);
+      vi.mocked(ultraqaLoop.readUltraQAState).mockReturnValueOnce(null as any);
+
+      cancelAutopilot(testDir, sessionId);
+
+      expect(ralphLoop.readRalphState).toHaveBeenCalledWith(testDir, sessionId);
+      expect(ultraqaLoop.readUltraQAState).toHaveBeenCalledWith(testDir, sessionId);
+      expect(ralphLoop.clearRalphState).not.toHaveBeenCalled();
+      expect(ralphLoop.clearLinkedUltraworkState).not.toHaveBeenCalled();
+      expect(ultraqaLoop.clearUltraQAState).not.toHaveBeenCalled();
+    });
   });
 
   describe('clearAutopilot', () => {
@@ -260,6 +277,22 @@ describe('AutopilotCancel', () => {
       const state = readAutopilotState(testDir);
       expect(state).toBeNull();
     });
+
+    it('should not clear other session ralph/ultraqa state when sessionId provided', () => {
+      const sessionId = 'session-a';
+      initAutopilot(testDir, 'test idea', sessionId);
+
+      vi.mocked(ralphLoop.readRalphState).mockReturnValueOnce(null as any);
+      vi.mocked(ultraqaLoop.readUltraQAState).mockReturnValueOnce(null as any);
+
+      clearAutopilot(testDir, sessionId);
+
+      expect(ralphLoop.readRalphState).toHaveBeenCalledWith(testDir, sessionId);
+      expect(ultraqaLoop.readUltraQAState).toHaveBeenCalledWith(testDir, sessionId);
+      expect(ralphLoop.clearRalphState).not.toHaveBeenCalled();
+      expect(ralphLoop.clearLinkedUltraworkState).not.toHaveBeenCalled();
+      expect(ultraqaLoop.clearUltraQAState).not.toHaveBeenCalled();
+    });
   });
 
   describe('canResumeAutopilot', () => {
@@ -271,8 +304,9 @@ describe('AutopilotCancel', () => {
       expect(result.resumePhase).toBeUndefined();
     });
 
-    it('should return true for incomplete phase (expansion)', () => {
+    it('should return true for recently cancelled incomplete state', () => {
       initAutopilot(testDir, 'test idea');
+      cancelAutopilot(testDir);
 
       const result = canResumeAutopilot(testDir);
 
@@ -281,44 +315,15 @@ describe('AutopilotCancel', () => {
       expect(result.resumePhase).toBe('expansion');
     });
 
-    it('should return true for incomplete phase (planning)', () => {
+    it('should return true for recently cancelled planning state', () => {
       initAutopilot(testDir, 'test idea');
       transitionPhase(testDir, 'planning');
+      cancelAutopilot(testDir);
 
       const result = canResumeAutopilot(testDir);
 
       expect(result.canResume).toBe(true);
       expect(result.resumePhase).toBe('planning');
-    });
-
-    it('should return true for incomplete phase (execution)', () => {
-      initAutopilot(testDir, 'test idea');
-      transitionPhase(testDir, 'execution');
-
-      const result = canResumeAutopilot(testDir);
-
-      expect(result.canResume).toBe(true);
-      expect(result.resumePhase).toBe('execution');
-    });
-
-    it('should return true for incomplete phase (qa)', () => {
-      initAutopilot(testDir, 'test idea');
-      transitionPhase(testDir, 'qa');
-
-      const result = canResumeAutopilot(testDir);
-
-      expect(result.canResume).toBe(true);
-      expect(result.resumePhase).toBe('qa');
-    });
-
-    it('should return true for incomplete phase (validation)', () => {
-      initAutopilot(testDir, 'test idea');
-      transitionPhase(testDir, 'validation');
-
-      const result = canResumeAutopilot(testDir);
-
-      expect(result.canResume).toBe(true);
-      expect(result.resumePhase).toBe('validation');
     });
 
     it('should return false for complete phase', () => {
@@ -341,6 +346,59 @@ describe('AutopilotCancel', () => {
       expect(result.canResume).toBe(false);
       expect(result.state).toBeDefined();
       expect(result.state?.phase).toBe('failed');
+    });
+
+    it('should return false for state that is still active (issue #609)', () => {
+      initAutopilot(testDir, 'test idea');
+      // State is active: true — do NOT cancel, simulate another session seeing this
+
+      const result = canResumeAutopilot(testDir);
+
+      expect(result.canResume).toBe(false);
+      expect(result.state).toBeDefined();
+      expect(result.state?.active).toBe(true);
+    });
+
+    it('should return false for stale cancelled state older than 1 hour (issue #609)', () => {
+      initAutopilot(testDir, 'test idea');
+      cancelAutopilot(testDir);
+
+      // Age the state file to be older than the stale threshold
+      const stateFile = join(testDir, '.omc', 'state', 'autopilot-state.json');
+      const pastTime = new Date(Date.now() - STALE_STATE_MAX_AGE_MS - 60_000);
+      utimesSync(stateFile, pastTime, pastTime);
+
+      const result = canResumeAutopilot(testDir);
+
+      expect(result.canResume).toBe(false);
+    });
+
+    it('should auto-cleanup stale state file (issue #609)', () => {
+      initAutopilot(testDir, 'test idea');
+      cancelAutopilot(testDir);
+
+      // Age the state file
+      const stateFile = join(testDir, '.omc', 'state', 'autopilot-state.json');
+      const pastTime = new Date(Date.now() - STALE_STATE_MAX_AGE_MS - 60_000);
+      utimesSync(stateFile, pastTime, pastTime);
+
+      canResumeAutopilot(testDir);
+
+      // State file should be deleted after stale detection
+      const state = readAutopilotState(testDir);
+      expect(state).toBeNull();
+    });
+
+    it('should allow resume for recently cancelled state within 1 hour', () => {
+      initAutopilot(testDir, 'test idea');
+      transitionPhase(testDir, 'execution');
+      cancelAutopilot(testDir);
+
+      // File is fresh — well within the 1 hour window
+      const result = canResumeAutopilot(testDir);
+
+      expect(result.canResume).toBe(true);
+      expect(result.resumePhase).toBe('execution');
     });
   });
 
@@ -444,6 +502,32 @@ describe('AutopilotCancel', () => {
       expect(result.state?.execution.tasks_completed).toBe(5);
       expect(result.state?.execution.tasks_total).toBe(10);
     });
+
+    it('should refuse to resume stale state from a previous session (issue #609)', () => {
+      initAutopilot(testDir, 'old idea from session A');
+      transitionPhase(testDir, 'planning');
+      cancelAutopilot(testDir);
+
+      // Simulate passage of time — file is now older than 1 hour
+      const stateFile = join(testDir, '.omc', 'state', 'autopilot-state.json');
+      const pastTime = new Date(Date.now() - STALE_STATE_MAX_AGE_MS - 60_000);
+      utimesSync(stateFile, pastTime, pastTime);
+
+      const result = resumeAutopilot(testDir);
+
+      expect(result.success).toBe(false);
+      expect(result.message).toBe('No autopilot session available to resume');
+    });
+
+    it('should refuse to resume actively-running state (issue #609)', () => {
+      initAutopilot(testDir, 'test idea');
+      // Do NOT cancel — state is still active: true
+
+      const result = resumeAutopilot(testDir);
+
+      expect(result.success).toBe(false);
+      expect(result.message).toBe('No autopilot session available to resume');
+    });
   });
 
   describe('formatCancelMessage', () => {
@@ -472,7 +556,7 @@ describe('AutopilotCancel', () => {
     });
 
     it('should format success message with preserved state and progress summary', () => {
-      const state = initAutopilot(testDir, 'test idea');
+      const _state = initAutopilot(testDir, 'test idea');
       transitionPhase(testDir, 'execution');
       updateExecution(testDir, {
         files_created: ['file1.ts', 'file2.ts', 'file3.ts'],

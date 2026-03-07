@@ -6,10 +6,10 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { mkdirSync, writeFileSync, rmSync } from 'fs';
+import { mkdirSync, rmSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
-import type { DaemonState, RateLimitStatus, BlockedPane } from '../../features/rate-limit-wait/types.js';
+import type { DaemonState } from '../../features/rate-limit-wait/types.js';
 
 // Mock modules
 vi.mock('../../hud/usage-api.js', () => ({
@@ -51,10 +51,14 @@ describe('Rate Limit Wait Integration Tests', () => {
     it('should detect when 5-hour limit is reached', async () => {
       // Simulate rate limit API response
       vi.mocked(getUsage).mockResolvedValue({
-        fiveHourPercent: 100,
-        weeklyPercent: 75,
-        fiveHourResetsAt: new Date(Date.now() + 3600000),
-        weeklyResetsAt: null,
+        rateLimits: {
+          fiveHourPercent: 100,
+          weeklyPercent: 75,
+          fiveHourResetsAt: new Date(Date.now() + 3600000),
+          weeklyResetsAt: null,
+          monthlyPercent: 0,
+          monthlyResetsAt: null,
+        },
       });
 
       const status = await checkRateLimitStatus();
@@ -69,10 +73,14 @@ describe('Rate Limit Wait Integration Tests', () => {
 
     it('should detect when weekly limit is reached', async () => {
       vi.mocked(getUsage).mockResolvedValue({
-        fiveHourPercent: 50,
-        weeklyPercent: 100,
-        fiveHourResetsAt: null,
-        weeklyResetsAt: new Date(Date.now() + 86400000),
+        rateLimits: {
+          fiveHourPercent: 50,
+          weeklyPercent: 100,
+          fiveHourResetsAt: null,
+          weeklyResetsAt: new Date(Date.now() + 86400000),
+          monthlyPercent: 0,
+          monthlyResetsAt: null,
+        },
       });
 
       const status = await checkRateLimitStatus();
@@ -86,10 +94,14 @@ describe('Rate Limit Wait Integration Tests', () => {
     it('should handle transition from limited to not limited', async () => {
       // First call: limited
       vi.mocked(getUsage).mockResolvedValueOnce({
-        fiveHourPercent: 100,
-        weeklyPercent: 50,
-        fiveHourResetsAt: new Date(Date.now() + 1000),
-        weeklyResetsAt: null,
+        rateLimits: {
+          fiveHourPercent: 100,
+          weeklyPercent: 50,
+          fiveHourResetsAt: new Date(Date.now() + 1000),
+          weeklyResetsAt: null,
+          monthlyPercent: 0,
+          monthlyResetsAt: null,
+        },
       });
 
       const limitedStatus = await checkRateLimitStatus();
@@ -97,10 +109,14 @@ describe('Rate Limit Wait Integration Tests', () => {
 
       // Second call: no longer limited
       vi.mocked(getUsage).mockResolvedValueOnce({
-        fiveHourPercent: 0,
-        weeklyPercent: 50,
-        fiveHourResetsAt: null,
-        weeklyResetsAt: null,
+        rateLimits: {
+          fiveHourPercent: 0,
+          weeklyPercent: 50,
+          fiveHourResetsAt: null,
+          weeklyResetsAt: null,
+          monthlyPercent: 0,
+          monthlyResetsAt: null,
+        },
       });
 
       const clearedStatus = await checkRateLimitStatus();
@@ -229,9 +245,11 @@ Assistant: I can help with more tasks.
         rateLimitStatus: {
           fiveHourLimited: true,
           weeklyLimited: false,
+          monthlyLimited: false,
           isLimited: true,
           fiveHourResetsAt: new Date('2024-01-01T15:00:00Z'),
           weeklyResetsAt: null,
+          monthlyResetsAt: null,
           nextResetAt: new Date('2024-01-01T15:00:00Z'),
           timeUntilResetMs: 3600000,
           lastCheckedAt: new Date('2024-01-01T10:05:00Z'),
@@ -280,9 +298,11 @@ Assistant: I can help with more tasks.
         rateLimitStatus: {
           fiveHourLimited: false,
           weeklyLimited: false,
+          monthlyLimited: false,
           isLimited: false,
           fiveHourResetsAt: null,
           weeklyResetsAt: null,
+          monthlyResetsAt: null,
           nextResetAt: null,
           timeUntilResetMs: null,
           lastCheckedAt: new Date(),
@@ -304,7 +324,7 @@ Assistant: I can help with more tasks.
 
   describe('Scenario: Error handling and edge cases', () => {
     it('should handle OAuth credentials not available', async () => {
-      vi.mocked(getUsage).mockResolvedValue(null);
+      vi.mocked(getUsage).mockResolvedValue({ rateLimits: null, error: 'no_credentials' });
 
       const status = await checkRateLimitStatus();
 

@@ -18,16 +18,18 @@ const RATE_LIMIT_THRESHOLD = 100;
  */
 export async function checkRateLimitStatus(): Promise<RateLimitStatus | null> {
   try {
-    const usage = await getUsage();
+    const result = await getUsage();
 
-    if (!usage) {
+    if (!result.rateLimits) {
       // No OAuth credentials or API unavailable
       return null;
     }
 
-    const fiveHourLimited = usage.fiveHourPercent >= RATE_LIMIT_THRESHOLD;
-    const weeklyLimited = usage.weeklyPercent >= RATE_LIMIT_THRESHOLD;
-    const isLimited = fiveHourLimited || weeklyLimited;
+    const usage = result.rateLimits;
+    const fiveHourLimited = (usage.fiveHourPercent ?? 0) >= RATE_LIMIT_THRESHOLD;
+    const weeklyLimited = (usage.weeklyPercent ?? 0) >= RATE_LIMIT_THRESHOLD;
+    const monthlyLimited = (usage.monthlyPercent ?? 0) >= RATE_LIMIT_THRESHOLD;
+    const isLimited = fiveHourLimited || weeklyLimited || monthlyLimited;
 
     // Determine next reset time
     let nextResetAt: Date | null = null;
@@ -43,6 +45,9 @@ export async function checkRateLimitStatus(): Promise<RateLimitStatus | null> {
       if (weeklyLimited && usage.weeklyResetsAt) {
         resets.push(usage.weeklyResetsAt);
       }
+      if (monthlyLimited && usage.monthlyResetsAt) {
+        resets.push(usage.monthlyResetsAt);
+      }
 
       if (resets.length > 0) {
         // Find earliest reset
@@ -56,9 +61,11 @@ export async function checkRateLimitStatus(): Promise<RateLimitStatus | null> {
     return {
       fiveHourLimited,
       weeklyLimited,
+      monthlyLimited,
       isLimited,
       fiveHourResetsAt: usage.fiveHourResetsAt ?? null,
       weeklyResetsAt: usage.weeklyResetsAt ?? null,
+      monthlyResetsAt: usage.monthlyResetsAt ?? null,
       nextResetAt,
       timeUntilResetMs,
       lastCheckedAt: new Date(),
@@ -105,6 +112,9 @@ export function formatRateLimitStatus(status: RateLimitStatus): string {
   }
   if (status.weeklyLimited) {
     parts.push('Weekly limit reached');
+  }
+  if (status.monthlyLimited) {
+    parts.push('Monthly limit reached');
   }
 
   let message = parts.join(' and ');

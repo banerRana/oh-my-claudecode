@@ -5,7 +5,56 @@
  * Based on claude-hud reference implementation.
  */
 
+import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
+import { join } from 'path';
+import { getWorktreeRoot } from '../lib/worktree-paths.js';
 import type { StatuslineStdin } from './types.js';
+
+// ============================================================================
+// Stdin Cache (for --watch mode)
+// ============================================================================
+
+function getStdinCachePath(): string {
+  const root = getWorktreeRoot() || process.cwd();
+  return join(root, '.omc', 'state', 'hud-stdin-cache.json');
+}
+
+/**
+ * Persist the last successful stdin read to disk.
+ * Used by --watch mode to recover data when stdin is a TTY.
+ */
+export function writeStdinCache(stdin: StatuslineStdin): void {
+  try {
+    const root = getWorktreeRoot() || process.cwd();
+    const cacheDir = join(root, '.omc', 'state');
+    if (!existsSync(cacheDir)) {
+      mkdirSync(cacheDir, { recursive: true });
+    }
+    writeFileSync(getStdinCachePath(), JSON.stringify(stdin));
+  } catch {
+    // Best-effort; ignore failures
+  }
+}
+
+/**
+ * Read the last cached stdin JSON.
+ * Returns null if no cache exists or it is unreadable.
+ */
+export function readStdinCache(): StatuslineStdin | null {
+  try {
+    const cachePath = getStdinCachePath();
+    if (!existsSync(cachePath)) {
+      return null;
+    }
+    return JSON.parse(readFileSync(cachePath, 'utf-8')) as StatuslineStdin;
+  } catch {
+    return null;
+  }
+}
+
+// ============================================================================
+// Stdin Reader
+// ============================================================================
 
 /**
  * Read and parse stdin JSON from Claude Code.
@@ -74,5 +123,5 @@ export function getContextPercent(stdin: StatuslineStdin): number {
  * Get model display name from stdin.
  */
 export function getModelName(stdin: StatuslineStdin): string {
-  return stdin.model?.display_name ?? stdin.model?.id ?? 'Unknown';
+  return stdin.model?.id ?? stdin.model?.display_name ?? 'Unknown';
 }

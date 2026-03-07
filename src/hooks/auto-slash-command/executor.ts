@@ -8,7 +8,7 @@
 
 import { existsSync, readdirSync, readFileSync } from 'fs';
 import { join, basename } from 'path';
-import { homedir } from 'os';
+import { getClaudeConfigDir } from '../../utils/paths.js';
 import type {
   ParsedSlashCommand,
   CommandInfo,
@@ -16,44 +16,45 @@ import type {
   CommandScope,
   ExecuteResult,
 } from './types.js';
+import { resolveLiveData } from './live-data.js';
+import { parseFrontmatter, parseFrontmatterAliases, stripOptionalQuotes } from '../../utils/frontmatter.js';
 
 /** Claude config directory */
-const CLAUDE_CONFIG_DIR = join(homedir(), '.claude');
+const CLAUDE_CONFIG_DIR = getClaudeConfigDir();
 
 /**
- * Parse YAML-like frontmatter from markdown file
- * Simple implementation - supports basic key: value format
+ * Claude Code native commands that must not be shadowed by user skills.
+ * Skills whose canonical name or alias matches one of these will be prefixed
+ * with `omc-` to avoid overriding built-in CC slash commands.
  */
-function parseFrontmatter(content: string): { data: Record<string, string>; body: string } {
-  const frontmatterRegex = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/;
-  const match = content.match(frontmatterRegex);
+const CC_NATIVE_COMMANDS = new Set([
+  'review',
+  'plan',
+  'security-review',
+  'init',
+  'doctor',
+  'help',
+  'config',
+  'clear',
+  'compact',
+  'memory',
+]);
 
-  if (!match) {
-    return { data: {}, body: content };
-  }
+function toSafeSkillName(name: string): string {
+  const normalized = name.trim();
+  return CC_NATIVE_COMMANDS.has(normalized.toLowerCase())
+    ? `omc-${normalized}`
+    : normalized;
+}
 
-  const [, yamlContent, body] = match;
-  const data: Record<string, string> = {};
-
-  for (const line of yamlContent.split('\n')) {
-    const colonIndex = line.indexOf(':');
-    if (colonIndex === -1) continue;
-
-    const key = line.slice(0, colonIndex).trim();
-    let value = line.slice(colonIndex + 1).trim();
-
-    // Remove surrounding quotes
-    if (
-      (value.startsWith('"') && value.endsWith('"')) ||
-      (value.startsWith("'") && value.endsWith("'"))
-    ) {
-      value = value.slice(1, -1);
-    }
-
-    data[key] = value;
-  }
-
-  return { data, body };
+function getFrontmatterString(
+  data: Record<string, string>,
+  key: string,
+): string | undefined {
+  const value = data[key];
+  if (!value) return undefined;
+  const normalized = stripOptionalQuotes(value);
+  return normalized.length > 0 ? normalized : undefined;
 }
 
 /**
@@ -85,20 +86,20 @@ function discoverCommandsFromDir(
 
     try {
       const content = readFileSync(commandPath, 'utf-8');
-      const { data, body } = parseFrontmatter(content);
+      const { metadata: fm, body } = parseFrontmatter(content);
 
-      const metadata: CommandMetadata = {
+      const commandMetadata: CommandMetadata = {
         name: commandName,
-        description: data.description || '',
-        argumentHint: data['argument-hint'],
-        model: data.model,
-        agent: data.agent,
+        description: fm.description || '',
+        argumentHint: fm['argument-hint'],
+        model: fm.model,
+        agent: fm.agent,
       };
 
       commands.push({
         name: commandName,
         path: commandPath,
-        metadata,
+        metadata: commandMetadata,
         content: body,
         scope,
       });
@@ -133,23 +134,45 @@ export function discoverAllCommands(): CommandInfo[] {
         if (existsSync(skillPath)) {
           try {
             const content = readFileSync(skillPath, 'utf-8');
-            const { data, body } = parseFrontmatter(content);
+            const { metadata: fm, body } = parseFrontmatter(content);
 
-            const metadata: CommandMetadata = {
-              name: data.name || dir.name,
-              description: data.description || '',
-              argumentHint: data['argument-hint'],
-              model: data.model,
-              agent: data.agent,
-            };
+            const rawName = getFrontmatterString(fm, 'name') || dir.name;
+            const canonicalName = toSafeSkillName(rawName);
+            const aliases = Array.from(new Set(
+              parseFrontmatterAliases(fm.aliases)
+                .map((alias: string) => toSafeSkillName(alias))
+                .filter((alias: string) => alias.toLowerCase() !== canonicalName.toLowerCase())
+            ));
+            const commandNames = [canonicalName, ...aliases];
+            const description = getFrontmatterString(fm, 'description') || '';
+            const argumentHint = getFrontmatterString(fm, 'argument-hint');
+            const model = getFrontmatterString(fm, 'model');
+            const agent = getFrontmatterString(fm, 'agent');
 
-            skillCommands.push({
-              name: data.name || dir.name,
-              path: skillPath,
-              metadata,
-              content: body,
-              scope: 'skill',
-            });
+            for (const commandName of commandNames) {
+              const isAlias = commandName !== canonicalName;
+              const metadata: CommandMetadata = {
+                name: commandName,
+                description,
+                argumentHint,
+                model,
+                agent,
+                aliases: isAlias ? undefined : aliases,
+                aliasOf: isAlias ? canonicalName : undefined,
+                deprecatedAlias: isAlias || undefined,
+                deprecationMessage: isAlias
+                  ? `Alias "/${commandName}" is deprecated. Use "/${canonicalName}" instead.`
+                  : undefined,
+              };
+
+              skillCommands.push({
+                name: commandName,
+                path: skillPath,
+                metadata,
+                content: body,
+                scope: 'skill',
+              });
+            }
           } catch {
             continue;
           }
@@ -161,7 +184,15 @@ export function discoverAllCommands(): CommandInfo[] {
   }
 
   // Priority: project > user > skills
-  return [...projectCommands, ...userCommands, ...skillCommands];
+  const prioritized = [...projectCommands, ...userCommands, ...skillCommands];
+  const seen = new Set<string>();
+
+  return prioritized.filter((command) => {
+    const key = command.name.toLowerCase();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 /**
@@ -208,11 +239,19 @@ function formatCommandTemplate(cmd: CommandInfo, args: string): string {
   }
 
   sections.push(`**Scope**: ${cmd.scope}\n`);
+
+  if (cmd.metadata.aliasOf) {
+    sections.push(
+      `⚠️ **Deprecated Alias**: \`/${cmd.name}\` is deprecated and will be removed in a future release. Use \`/${cmd.metadata.aliasOf}\` instead.\n`
+    );
+  }
+
   sections.push('---\n');
 
-  // Resolve arguments in content
+  // Resolve arguments in content, then execute any live-data commands
   const resolvedContent = resolveArguments(cmd.content || '', args);
-  sections.push(resolvedContent.trim());
+  const injectedContent = resolveLiveData(resolvedContent);
+  sections.push(injectedContent.trim());
 
   if (args && !cmd.content?.includes('$ARGUMENTS')) {
     sections.push('\n\n---\n');
@@ -232,7 +271,7 @@ export function executeSlashCommand(parsed: ParsedSlashCommand): ExecuteResult {
   if (!command) {
     return {
       success: false,
-      error: `Command "/${parsed.command}" not found. Available commands are in ~/.claude/commands/ or .claude/commands/`,
+      error: `Command "/${parsed.command}" not found. Available commands are in $CLAUDE_CONFIG_DIR/commands/ (or ~/.claude/commands/ by default) or .claude/commands/`,
     };
   }
 
@@ -260,8 +299,23 @@ export function listAvailableCommands(): Array<{
   description: string;
   scope: CommandScope;
 }> {
+  return listAvailableCommandsWithOptions();
+}
+
+export function listAvailableCommandsWithOptions(options?: {
+  includeAliases?: boolean;
+}): Array<{
+  name: string;
+  description: string;
+  scope: CommandScope;
+}> {
+  const { includeAliases = false } = options ?? {};
   const commands = discoverAllCommands();
-  return commands.map((cmd) => ({
+  const visibleCommands = includeAliases
+    ? commands
+    : commands.filter((cmd) => !cmd.metadata.aliasOf);
+
+  return visibleCommands.map((cmd) => ({
     name: cmd.name,
     description: cmd.metadata.description,
     scope: cmd.scope,

@@ -8,7 +8,8 @@
 import {
   readAutopilotState,
   clearAutopilotState,
-  writeAutopilotState
+  writeAutopilotState,
+  getAutopilotStateAge
 } from './state.js';
 import { clearRalphState, clearLinkedUltraworkState, readRalphState } from '../ralph/index.js';
 import { clearUltraQAState, readUltraQAState } from '../ultraqa/index.js';
@@ -24,8 +25,8 @@ export interface CancelResult {
  * Cancel autopilot and clean up all related state
  * Progress is preserved for potential resume
  */
-export function cancelAutopilot(directory: string): CancelResult {
-  const state = readAutopilotState(directory);
+export function cancelAutopilot(directory: string, sessionId?: string): CancelResult {
+  const state = readAutopilotState(directory, sessionId);
 
   if (!state) {
     return {
@@ -45,26 +46,42 @@ export function cancelAutopilot(directory: string): CancelResult {
   const cleanedUp: string[] = [];
 
   // Clean up any active Ralph state
-  const ralphState = readRalphState(directory);
+  const ralphState = sessionId
+    ? readRalphState(directory, sessionId)
+    : readRalphState(directory);
   if (ralphState?.active) {
     if (ralphState.linked_ultrawork) {
-      clearLinkedUltraworkState(directory);
+      if (sessionId) {
+        clearLinkedUltraworkState(directory, sessionId);
+      } else {
+        clearLinkedUltraworkState(directory);
+      }
       cleanedUp.push('ultrawork');
     }
-    clearRalphState(directory);
+    if (sessionId) {
+      clearRalphState(directory, sessionId);
+    } else {
+      clearRalphState(directory);
+    }
     cleanedUp.push('ralph');
   }
 
   // Clean up any active UltraQA state
-  const ultraqaState = readUltraQAState(directory);
+  const ultraqaState = sessionId
+    ? readUltraQAState(directory, sessionId)
+    : readUltraQAState(directory);
   if (ultraqaState?.active) {
-    clearUltraQAState(directory);
+    if (sessionId) {
+      clearUltraQAState(directory, sessionId);
+    } else {
+      clearUltraQAState(directory);
+    }
     cleanedUp.push('ultraqa');
   }
 
   // Mark autopilot as inactive but preserve state for resume
   state.active = false;
-  writeAutopilotState(directory, state);
+  writeAutopilotState(directory, state, sessionId);
 
   const cleanupMsg = cleanedUp.length > 0
     ? ` Cleaned up: ${cleanedUp.join(', ')}.`
@@ -80,8 +97,8 @@ export function cancelAutopilot(directory: string): CancelResult {
 /**
  * Fully clear autopilot state (no preserve)
  */
-export function clearAutopilot(directory: string): CancelResult {
-  const state = readAutopilotState(directory);
+export function clearAutopilot(directory: string, sessionId?: string): CancelResult {
+  const state = readAutopilotState(directory, sessionId);
 
   if (!state) {
     return {
@@ -91,21 +108,37 @@ export function clearAutopilot(directory: string): CancelResult {
   }
 
   // Clean up all related state
-  const ralphState = readRalphState(directory);
+  const ralphState = sessionId
+    ? readRalphState(directory, sessionId)
+    : readRalphState(directory);
   if (ralphState) {
     if (ralphState.linked_ultrawork) {
-      clearLinkedUltraworkState(directory);
+      if (sessionId) {
+        clearLinkedUltraworkState(directory, sessionId);
+      } else {
+        clearLinkedUltraworkState(directory);
+      }
     }
-    clearRalphState(directory);
+    if (sessionId) {
+      clearRalphState(directory, sessionId);
+    } else {
+      clearRalphState(directory);
+    }
   }
 
-  const ultraqaState = readUltraQAState(directory);
+  const ultraqaState = sessionId
+    ? readUltraQAState(directory, sessionId)
+    : readUltraQAState(directory);
   if (ultraqaState) {
-    clearUltraQAState(directory);
+    if (sessionId) {
+      clearUltraQAState(directory, sessionId);
+    } else {
+      clearUltraQAState(directory);
+    }
   }
 
   // Clear autopilot state completely
-  clearAutopilotState(directory);
+  clearAutopilotState(directory, sessionId);
 
   return {
     success: true,
@@ -113,25 +146,51 @@ export function clearAutopilot(directory: string): CancelResult {
   };
 }
 
+/** Maximum age (ms) for state to be considered resumable (1 hour) */
+export const STALE_STATE_MAX_AGE_MS = 60 * 60 * 1000;
+
 /**
- * Check if autopilot can be resumed
+ * Check if autopilot can be resumed.
+ *
+ * Guards against stale state reuse (issue #609):
+ * - Rejects terminal phases (complete/failed)
+ * - Rejects states still marked active (session may still be running)
+ * - Rejects stale states older than STALE_STATE_MAX_AGE_MS
+ * - Auto-cleans stale state files to prevent future false positives
  */
-export function canResumeAutopilot(directory: string): {
+export function canResumeAutopilot(directory: string, sessionId?: string): {
   canResume: boolean;
   state?: AutopilotState;
   resumePhase?: string;
 } {
-  const state = readAutopilotState(directory);
+  const state = readAutopilotState(directory, sessionId);
 
   if (!state) {
     return { canResume: false };
   }
 
-  // Can resume if state exists and is not complete/failed
-  const canResume = state.phase !== 'complete' && state.phase !== 'failed';
+  // Cannot resume terminal states
+  if (state.phase === 'complete' || state.phase === 'failed') {
+    return { canResume: false, state, resumePhase: state.phase };
+  }
+
+  // Cannot resume a state that claims to be actively running — it may belong
+  // to another session that is still alive.
+  if (state.active) {
+    return { canResume: false, state, resumePhase: state.phase };
+  }
+
+  // Reject stale states: if the state file hasn't been touched in over an hour
+  // it is from a previous session and should not be resumed.
+  const ageMs = getAutopilotStateAge(directory, sessionId);
+  if (ageMs !== null && ageMs > STALE_STATE_MAX_AGE_MS) {
+    // Auto-cleanup stale state to prevent future false positives
+    clearAutopilotState(directory, sessionId);
+    return { canResume: false, state, resumePhase: state.phase };
+  }
 
   return {
-    canResume,
+    canResume: true,
     state,
     resumePhase: state.phase
   };
@@ -140,12 +199,12 @@ export function canResumeAutopilot(directory: string): {
 /**
  * Resume a paused autopilot session
  */
-export function resumeAutopilot(directory: string): {
+export function resumeAutopilot(directory: string, sessionId?: string): {
   success: boolean;
   message: string;
   state?: AutopilotState;
 } {
-  const { canResume, state } = canResumeAutopilot(directory);
+  const { canResume, state } = canResumeAutopilot(directory, sessionId);
 
   if (!canResume || !state) {
     return {
@@ -158,7 +217,7 @@ export function resumeAutopilot(directory: string): {
   state.active = true;
   state.iteration++;
 
-  if (!writeAutopilotState(directory, state)) {
+  if (!writeAutopilotState(directory, state, sessionId)) {
     return {
       success: false,
       message: 'Failed to update autopilot state'

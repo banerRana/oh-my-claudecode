@@ -6,13 +6,10 @@
 
 export type ExecutionMode =
   | 'autopilot'
-  | 'ultrapilot'
-  | 'swarm'
-  | 'pipeline'
+  | 'team'
   | 'ralph'
   | 'ultrawork'
-  | 'ultraqa'
-  | 'ecomode';
+  | 'ultraqa';
 
 export interface ModeConfig {
   /** Display name for the mode */

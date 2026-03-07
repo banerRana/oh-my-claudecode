@@ -5,7 +5,7 @@
  * Supports auto-detection and installation hints.
  */
 
-import { execSync } from 'child_process';
+import { spawnSync } from 'child_process';
 import { extname } from 'path';
 
 export interface LspServerConfig {
@@ -132,6 +132,20 @@ export const LSP_SERVERS: Record<string, LspServerConfig> = {
     args: ['-lsp'],
     extensions: ['.cs'],
     installHint: 'dotnet tool install -g omnisharp'
+  },
+  dart: {
+    name: 'Dart Analysis Server',
+    command: 'dart',
+    args: ['language-server', '--protocol=lsp'],
+    extensions: ['.dart'],
+    installHint: 'Install Dart SDK from https://dart.dev/get-dart or Flutter SDK from https://flutter.dev'
+  },
+  swift: {
+    name: 'SourceKit-LSP',
+    command: 'sourcekit-lsp',
+    args: [],
+    extensions: ['.swift'],
+    installHint: 'Install Swift from https://swift.org/download or via Xcode'
   }
 };
 
@@ -139,13 +153,9 @@ export const LSP_SERVERS: Record<string, LspServerConfig> = {
  * Check if a command exists in PATH
  */
 export function commandExists(command: string): boolean {
-  try {
-    const checkCommand = process.platform === 'win32' ? 'where' : 'which';
-    execSync(`${checkCommand} ${command}`, { stdio: 'ignore' });
-    return true;
-  } catch {
-    return false;
-  }
+  const checkCommand = process.platform === 'win32' ? 'where' : 'which';
+  const result = spawnSync(checkCommand, [command], { stdio: 'ignore' });
+  return result.status === 0;
 }
 
 /**
@@ -215,7 +225,10 @@ export function getServerForLanguage(language: string): LspServerConfig | null {
     'eex': 'elixir',
     'csharp': 'csharp',
     'c#': 'csharp',
-    'cs': 'csharp'
+    'cs': 'csharp',
+    'dart': 'dart',
+    'flutter': 'dart',
+    'swift': 'swift'
   };
 
   const serverKey = langMap[language.toLowerCase()];

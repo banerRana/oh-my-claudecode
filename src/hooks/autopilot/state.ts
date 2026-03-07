@@ -7,114 +7,133 @@
  * - State machine operations
  */
 
-import { existsSync, readFileSync, writeFileSync, mkdirSync, unlinkSync } from 'fs';
-import { join } from 'path';
-import type { AutopilotState, AutopilotPhase, AutopilotConfig } from './types.js';
-import { DEFAULT_CONFIG } from './types.js';
+import { mkdirSync, statSync } from "fs";
+import { join } from "path";
+import {
+  writeModeState,
+  readModeState,
+  clearModeStateFile,
+} from "../../lib/mode-state-io.js";
+import {
+  resolveStatePath,
+  resolveSessionStatePath,
+} from "../../lib/worktree-paths.js";
+import type {
+  AutopilotState,
+  AutopilotPhase,
+  AutopilotConfig,
+} from "./types.js";
+import { DEFAULT_CONFIG } from "./types.js";
 import {
   readRalphState,
   clearRalphState,
-  clearLinkedUltraworkState
-} from '../ralph/index.js';
+  clearLinkedUltraworkState,
+} from "../ralph/index.js";
 import {
   startUltraQA,
   clearUltraQAState,
-  readUltraQAState
-} from '../ultraqa/index.js';
-import { canStartMode } from '../mode-registry/index.js';
+  readUltraQAState,
+} from "../ultraqa/index.js";
+import { canStartMode } from "../mode-registry/index.js";
+import { getOmcRoot } from "../../lib/worktree-paths.js";
 
-const STATE_FILE = 'autopilot-state.json';
-const SPEC_DIR = 'autopilot';
+const SPEC_DIR = "autopilot";
 
 // ============================================================================
 // STATE MANAGEMENT
 // ============================================================================
 
 /**
- * Get the state file path
- */
-function getStateFilePath(directory: string): string {
-  const omcDir = join(directory, '.omc');
-  return join(omcDir, 'state', STATE_FILE);
-}
-
-/**
- * Ensure the .omc/state directory exists
- */
-function ensureStateDir(directory: string): void {
-  const stateDir = join(directory, '.omc', 'state');
-  if (!existsSync(stateDir)) {
-    mkdirSync(stateDir, { recursive: true });
-  }
-}
-
-/**
  * Ensure the autopilot directory exists
  */
 export function ensureAutopilotDir(directory: string): string {
-  ensureStateDir(directory);
-  const autopilotDir = join(directory, '.omc', SPEC_DIR);
-  if (!existsSync(autopilotDir)) {
-    mkdirSync(autopilotDir, { recursive: true });
-  }
+  const autopilotDir = join(getOmcRoot(directory), SPEC_DIR);
+  mkdirSync(autopilotDir, { recursive: true });
   return autopilotDir;
 }
 
 /**
  * Read autopilot state from disk
  */
-export function readAutopilotState(directory: string): AutopilotState | null {
-  const stateFile = getStateFilePath(directory);
+export function readAutopilotState(
+  directory: string,
+  sessionId?: string,
+): AutopilotState | null {
+  const state = readModeState<AutopilotState>(
+    "autopilot",
+    directory,
+    sessionId,
+  );
 
-  if (!existsSync(stateFile)) {
+  // Validate session identity
+  if (
+    state &&
+    sessionId &&
+    state.session_id &&
+    state.session_id !== sessionId
+  ) {
     return null;
   }
 
-  try {
-    const content = readFileSync(stateFile, 'utf-8');
-    return JSON.parse(content);
-  } catch {
-    return null;
-  }
+  return state;
 }
 
 /**
  * Write autopilot state to disk
  */
-export function writeAutopilotState(directory: string, state: AutopilotState): boolean {
-  try {
-    ensureStateDir(directory);
-    const stateFile = getStateFilePath(directory);
-    writeFileSync(stateFile, JSON.stringify(state, null, 2));
-    return true;
-  } catch {
-    return false;
-  }
+export function writeAutopilotState(
+  directory: string,
+  state: AutopilotState,
+  sessionId?: string,
+): boolean {
+  return writeModeState(
+    "autopilot",
+    state as unknown as Record<string, unknown>,
+    directory,
+    sessionId,
+  );
 }
 
 /**
  * Clear autopilot state
  */
-export function clearAutopilotState(directory: string): boolean {
-  const stateFile = getStateFilePath(directory);
+export function clearAutopilotState(
+  directory: string,
+  sessionId?: string,
+): boolean {
+  return clearModeStateFile("autopilot", directory, sessionId);
+}
 
-  if (!existsSync(stateFile)) {
-    return true;
-  }
-
+/**
+ * Get the age of the autopilot state file in milliseconds.
+ * Returns null if no state file exists.
+ */
+export function getAutopilotStateAge(
+  directory: string,
+  sessionId?: string,
+): number | null {
+  const stateFile = sessionId
+    ? resolveSessionStatePath("autopilot", sessionId, directory)
+    : resolveStatePath("autopilot", directory);
   try {
-    unlinkSync(stateFile);
-    return true;
-  } catch {
-    return false;
+    const stats = statSync(stateFile);
+    return Date.now() - stats.mtimeMs;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return null;
+    }
+    return null;
   }
 }
 
 /**
  * Check if autopilot is active
  */
-export function isAutopilotActive(directory: string): boolean {
-  const state = readAutopilotState(directory);
+export function isAutopilotActive(
+  directory: string,
+  sessionId?: string,
+): boolean {
+  const state = readAutopilotState(directory, sessionId);
   return state !== null && state.active === true;
 }
 
@@ -125,10 +144,10 @@ export function initAutopilot(
   directory: string,
   idea: string,
   sessionId?: string,
-  config?: Partial<AutopilotConfig>
+  config?: Partial<AutopilotConfig>,
 ): AutopilotState | null {
   // Mutual exclusion check via mode-registry
-  const canStart = canStartMode('autopilot', directory);
+  const canStart = canStartMode("autopilot", directory);
   if (!canStart.allowed) {
     console.error(canStart.message);
     return null;
@@ -139,7 +158,7 @@ export function initAutopilot(
 
   const state: AutopilotState = {
     active: true,
-    phase: 'expansion',
+    phase: "expansion",
     iteration: 1,
     max_iterations: mergedConfig.maxIterations ?? 10,
     originalIdea: idea,
@@ -148,14 +167,14 @@ export function initAutopilot(
       analyst_complete: false,
       architect_complete: false,
       spec_path: null,
-      requirements_summary: '',
-      tech_stack: []
+      requirements_summary: "",
+      tech_stack: [],
     },
 
     planning: {
       plan_path: null,
       architect_iterations: 0,
-      approved: false
+      approved: false,
     },
 
     execution: {
@@ -164,21 +183,21 @@ export function initAutopilot(
       tasks_completed: 0,
       tasks_total: 0,
       files_created: [],
-      files_modified: []
+      files_modified: [],
     },
 
     qa: {
       ultraqa_cycles: 0,
-      build_status: 'pending',
-      lint_status: 'pending',
-      test_status: 'pending'
+      build_status: "pending",
+      lint_status: "pending",
+      test_status: "pending",
     },
 
     validation: {
       architects_spawned: 0,
       verdicts: [],
       all_approved: false,
-      validation_rounds: 0
+      validation_rounds: 0,
     },
 
     started_at: now,
@@ -186,11 +205,12 @@ export function initAutopilot(
     phase_durations: {},
     total_agents_spawned: 0,
     wisdom_entries: 0,
-    session_id: sessionId
+    session_id: sessionId,
+    project_path: directory,
   };
 
   ensureAutopilotDir(directory);
-  writeAutopilotState(directory, state);
+  writeAutopilotState(directory, state, sessionId);
 
   return state;
 }
@@ -200,9 +220,10 @@ export function initAutopilot(
  */
 export function transitionPhase(
   directory: string,
-  newPhase: AutopilotPhase
+  newPhase: AutopilotPhase,
+  sessionId?: string,
 ): AutopilotState | null {
-  const state = readAutopilotState(directory);
+  const state = readAutopilotState(directory, sessionId);
 
   if (!state || !state.active) {
     return null;
@@ -222,24 +243,28 @@ export function transitionPhase(
   state.phase = newPhase;
   state.phase_durations[`${newPhase}_start_ms`] = Date.now();
 
-  if (newPhase === 'complete' || newPhase === 'failed') {
+  if (newPhase === "complete" || newPhase === "failed") {
     state.completed_at = now;
     state.active = false;
   }
 
-  writeAutopilotState(directory, state);
+  writeAutopilotState(directory, state, sessionId);
   return state;
 }
 
 /**
  * Increment the agent spawn counter
  */
-export function incrementAgentCount(directory: string, count: number = 1): boolean {
-  const state = readAutopilotState(directory);
+export function incrementAgentCount(
+  directory: string,
+  count: number = 1,
+  sessionId?: string,
+): boolean {
+  const state = readAutopilotState(directory, sessionId);
   if (!state) return false;
 
   state.total_agents_spawned += count;
-  return writeAutopilotState(directory, state);
+  return writeAutopilotState(directory, state, sessionId);
 }
 
 /**
@@ -247,13 +272,14 @@ export function incrementAgentCount(directory: string, count: number = 1): boole
  */
 export function updateExpansion(
   directory: string,
-  updates: Partial<AutopilotState['expansion']>
+  updates: Partial<AutopilotState["expansion"]>,
+  sessionId?: string,
 ): boolean {
-  const state = readAutopilotState(directory);
+  const state = readAutopilotState(directory, sessionId);
   if (!state) return false;
 
   state.expansion = { ...state.expansion, ...updates };
-  return writeAutopilotState(directory, state);
+  return writeAutopilotState(directory, state, sessionId);
 }
 
 /**
@@ -261,13 +287,14 @@ export function updateExpansion(
  */
 export function updatePlanning(
   directory: string,
-  updates: Partial<AutopilotState['planning']>
+  updates: Partial<AutopilotState["planning"]>,
+  sessionId?: string,
 ): boolean {
-  const state = readAutopilotState(directory);
+  const state = readAutopilotState(directory, sessionId);
   if (!state) return false;
 
   state.planning = { ...state.planning, ...updates };
-  return writeAutopilotState(directory, state);
+  return writeAutopilotState(directory, state, sessionId);
 }
 
 /**
@@ -275,13 +302,14 @@ export function updatePlanning(
  */
 export function updateExecution(
   directory: string,
-  updates: Partial<AutopilotState['execution']>
+  updates: Partial<AutopilotState["execution"]>,
+  sessionId?: string,
 ): boolean {
-  const state = readAutopilotState(directory);
+  const state = readAutopilotState(directory, sessionId);
   if (!state) return false;
 
   state.execution = { ...state.execution, ...updates };
-  return writeAutopilotState(directory, state);
+  return writeAutopilotState(directory, state, sessionId);
 }
 
 /**
@@ -289,13 +317,14 @@ export function updateExecution(
  */
 export function updateQA(
   directory: string,
-  updates: Partial<AutopilotState['qa']>
+  updates: Partial<AutopilotState["qa"]>,
+  sessionId?: string,
 ): boolean {
-  const state = readAutopilotState(directory);
+  const state = readAutopilotState(directory, sessionId);
   if (!state) return false;
 
   state.qa = { ...state.qa, ...updates };
-  return writeAutopilotState(directory, state);
+  return writeAutopilotState(directory, state, sessionId);
 }
 
 /**
@@ -303,27 +332,28 @@ export function updateQA(
  */
 export function updateValidation(
   directory: string,
-  updates: Partial<AutopilotState['validation']>
+  updates: Partial<AutopilotState["validation"]>,
+  sessionId?: string,
 ): boolean {
-  const state = readAutopilotState(directory);
+  const state = readAutopilotState(directory, sessionId);
   if (!state) return false;
 
   state.validation = { ...state.validation, ...updates };
-  return writeAutopilotState(directory, state);
+  return writeAutopilotState(directory, state, sessionId);
 }
 
 /**
  * Get the spec file path
  */
 export function getSpecPath(directory: string): string {
-  return join(directory, '.omc', SPEC_DIR, 'spec.md');
+  return join(getOmcRoot(directory), SPEC_DIR, "spec.md");
 }
 
 /**
  * Get the plan file path
  */
 export function getPlanPath(directory: string): string {
-  return join(directory, '.omc', 'plans', 'autopilot-impl.md');
+  return join(getOmcRoot(directory), "plans", "autopilot-impl.md");
 }
 
 // ============================================================================
@@ -347,72 +377,79 @@ export interface TransitionResult {
  */
 export function transitionRalphToUltraQA(
   directory: string,
-  sessionId: string
+  sessionId: string,
 ): TransitionResult {
-  const autopilotState = readAutopilotState(directory);
+  const autopilotState = readAutopilotState(directory, sessionId);
 
-  if (!autopilotState || autopilotState.phase !== 'execution') {
+  if (!autopilotState || autopilotState.phase !== "execution") {
     return {
       success: false,
-      error: 'Not in execution phase - cannot transition to QA'
+      error: "Not in execution phase - cannot transition to QA",
     };
   }
 
-  const ralphState = readRalphState(directory);
+  const ralphState = readRalphState(directory, sessionId);
 
   // Step 1: Preserve Ralph progress in autopilot state
-  const executionUpdated = updateExecution(directory, {
-    ralph_iterations: ralphState?.iteration ?? autopilotState.execution.ralph_iterations,
-    ralph_completed_at: new Date().toISOString(),
-    ultrawork_active: false
-  });
+  const executionUpdated = updateExecution(
+    directory,
+    {
+      ralph_iterations:
+        ralphState?.iteration ?? autopilotState.execution.ralph_iterations,
+      ralph_completed_at: new Date().toISOString(),
+      ultrawork_active: false,
+    },
+    sessionId,
+  );
 
   if (!executionUpdated) {
     return {
       success: false,
-      error: 'Failed to update execution state'
+      error: "Failed to update execution state",
     };
   }
 
   // Step 2: Cleanly terminate Ralph (and linked Ultrawork)
   if (ralphState?.linked_ultrawork) {
-    clearLinkedUltraworkState(directory);
+    clearLinkedUltraworkState(directory, sessionId);
   }
-  const ralphCleared = clearRalphState(directory);
+  const ralphCleared = clearRalphState(directory, sessionId);
 
   if (!ralphCleared) {
     return {
       success: false,
-      error: 'Failed to clear Ralph state'
+      error: "Failed to clear Ralph state",
     };
   }
 
   // Step 3: Transition to QA phase
-  const newState = transitionPhase(directory, 'qa');
+  const newState = transitionPhase(directory, "qa", sessionId);
   if (!newState) {
     return {
       success: false,
-      error: 'Failed to transition to QA phase'
+      error: "Failed to transition to QA phase",
     };
   }
 
   // Step 4: Start UltraQA
-  const qaResult = startUltraQA(directory, 'tests', sessionId, { maxCycles: 5 });
+  const qaResult = startUltraQA(directory, "tests", sessionId, {
+    maxCycles: 5,
+  });
 
   if (!qaResult.success) {
     // Rollback on failure - restore execution phase
-    transitionPhase(directory, 'execution');
-    updateExecution(directory, { ralph_completed_at: undefined });
+    transitionPhase(directory, "execution", sessionId);
+    updateExecution(directory, { ralph_completed_at: undefined }, sessionId);
 
     return {
       success: false,
-      error: qaResult.error || 'Failed to start UltraQA'
+      error: qaResult.error || "Failed to start UltraQA",
     };
   }
 
   return {
     success: true,
-    state: newState
+    state: newState,
   };
 }
 
@@ -420,60 +457,68 @@ export function transitionRalphToUltraQA(
  * Transition from UltraQA (Phase 3: QA) to Validation (Phase 4)
  */
 export function transitionUltraQAToValidation(
-  directory: string
+  directory: string,
+  sessionId?: string,
 ): TransitionResult {
-  const autopilotState = readAutopilotState(directory);
+  const autopilotState = readAutopilotState(directory, sessionId);
 
-  if (!autopilotState || autopilotState.phase !== 'qa') {
+  if (!autopilotState || autopilotState.phase !== "qa") {
     return {
       success: false,
-      error: 'Not in QA phase - cannot transition to validation'
+      error: "Not in QA phase - cannot transition to validation",
     };
   }
 
-  const qaState = readUltraQAState(directory);
+  const qaState = readUltraQAState(directory, sessionId);
 
   // Preserve QA progress
-  const qaUpdated = updateQA(directory, {
-    ultraqa_cycles: qaState?.cycle ?? autopilotState.qa.ultraqa_cycles,
-    qa_completed_at: new Date().toISOString()
-  });
+  const qaUpdated = updateQA(
+    directory,
+    {
+      ultraqa_cycles: qaState?.cycle ?? autopilotState.qa.ultraqa_cycles,
+      qa_completed_at: new Date().toISOString(),
+    },
+    sessionId,
+  );
 
   if (!qaUpdated) {
     return {
       success: false,
-      error: 'Failed to update QA state'
+      error: "Failed to update QA state",
     };
   }
 
   // Terminate UltraQA
-  clearUltraQAState(directory);
+  clearUltraQAState(directory, sessionId);
 
   // Transition to validation
-  const newState = transitionPhase(directory, 'validation');
+  const newState = transitionPhase(directory, "validation", sessionId);
   if (!newState) {
     return {
       success: false,
-      error: 'Failed to transition to validation phase'
+      error: "Failed to transition to validation phase",
     };
   }
 
   return {
     success: true,
-    state: newState
+    state: newState,
   };
 }
 
 /**
  * Transition from Validation (Phase 4) to Complete
  */
-export function transitionToComplete(directory: string): TransitionResult {
-  const state = transitionPhase(directory, 'complete');
+export function transitionToComplete(
+  directory: string,
+  sessionId?: string,
+): TransitionResult {
+  const state = transitionPhase(directory, "complete", sessionId);
 
   if (!state) {
     return {
       success: false,
-      error: 'Failed to transition to complete phase'
+      error: "Failed to transition to complete phase",
     };
   }
 
@@ -485,14 +530,15 @@ export function transitionToComplete(directory: string): TransitionResult {
  */
 export function transitionToFailed(
   directory: string,
-  error: string
+  error: string,
+  sessionId?: string,
 ): TransitionResult {
-  const state = transitionPhase(directory, 'failed');
+  const state = transitionPhase(directory, "failed", sessionId);
 
   if (!state) {
     return {
       success: false,
-      error: 'Failed to transition to failed phase'
+      error: "Failed to transition to failed phase",
     };
   }
 
@@ -504,9 +550,9 @@ export function transitionToFailed(
  */
 export function getTransitionPrompt(
   fromPhase: string,
-  toPhase: string
+  toPhase: string,
 ): string {
-  if (fromPhase === 'execution' && toPhase === 'qa') {
+  if (fromPhase === "execution" && toPhase === "qa") {
     return `## PHASE TRANSITION: Execution → QA
 
 The execution phase is complete. Transitioning to QA phase.
@@ -519,9 +565,9 @@ The transition handler has:
 3. Started UltraQA in 'tests' mode
 
 You are now in QA phase. Run the QA cycle:
-1. Build: npm run build (or equivalent)
-2. Lint: npm run lint (or equivalent)
-3. Test: npm test (or equivalent)
+1. Build: Run the project's build command
+2. Lint: Run the project's lint command
+3. Test: Run the project's test command
 
 Fix any failures and repeat until all pass.
 
@@ -529,7 +575,7 @@ Signal when QA passes: QA_COMPLETE
 `;
   }
 
-  if (fromPhase === 'qa' && toPhase === 'validation') {
+  if (fromPhase === "qa" && toPhase === "validation") {
     return `## PHASE TRANSITION: QA → Validation
 
 All QA checks have passed. Transitioning to validation phase.
@@ -559,7 +605,7 @@ Aggregate verdicts:
 `;
   }
 
-  if (fromPhase === 'expansion' && toPhase === 'planning') {
+  if (fromPhase === "expansion" && toPhase === "planning") {
     return `## PHASE TRANSITION: Expansion → Planning
 
 The idea has been expanded into a detailed specification.
@@ -570,7 +616,7 @@ Signal when Critic approves the plan: PLANNING_COMPLETE
 `;
   }
 
-  if (fromPhase === 'planning' && toPhase === 'execution') {
+  if (fromPhase === "planning" && toPhase === "execution") {
     return `## PHASE TRANSITION: Planning → Execution
 
 The plan has been approved. Starting execution phase with Ralph + Ultrawork.
@@ -581,5 +627,5 @@ Signal when all tasks complete: EXECUTION_COMPLETE
 `;
   }
 
-  return '';
+  return "";
 }

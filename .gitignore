@@ -1,10 +1,18 @@
 node_modules/
-dist/
 *.log
 .DS_Store
 .omc/
-.sisyphus/
+.omc/
+.idea/
+.claude/
 
 # Windows reserved names (prevent accidental creation)
 nul
 NUL
+.omx/
+.env
+benchmarks/harsh-critic/results/
+benchmarks/harsh-critic/scoring/*.js
+benchmarks/harsh-critic/scoring/*.d.ts
+benchmarks/harsh-critic/scoring/*.js.map
+benchmarks/harsh-critic/scoring/*.d.ts.map

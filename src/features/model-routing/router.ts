@@ -13,7 +13,6 @@ import type {
 } from './types.js';
 import {
   DEFAULT_ROUTING_CONFIG,
-  TIER_MODELS,
   TIER_TO_MODEL_TYPE,
 } from './types.js';
 import { extractAllSignals } from './signals.js';
@@ -29,21 +28,33 @@ export function routeTask(
 ): RoutingDecision {
   const mergedConfig = { ...DEFAULT_ROUTING_CONFIG, ...config };
 
+  // If forceInherit is enabled, bypass all routing so agents inherit the parent model (issue #1135)
+  if (mergedConfig.forceInherit) {
+    return {
+      model: 'inherit',
+      modelType: 'inherit',
+      tier: 'MEDIUM',
+      confidence: 1.0,
+      reasons: ['forceInherit enabled: agents inherit parent model'],
+      escalated: false,
+    };
+  }
+
   // If routing is disabled, use default tier
   if (!mergedConfig.enabled) {
-    return createDecision(mergedConfig.defaultTier, ['Routing disabled, using default tier'], false);
+    return createDecision(mergedConfig.defaultTier, mergedConfig.tierModels, ['Routing disabled, using default tier'], false);
   }
 
   // If explicit model is specified, respect it
   if (context.explicitModel) {
-    const tier = modelTypeToTier(context.explicitModel);
-    return createDecision(tier, ['Explicit model specified by user'], false);
+    const explicitTier = modelTypeToTier(context.explicitModel);
+    return createDecision(explicitTier, mergedConfig.tierModels, ['Explicit model specified by user'], false, explicitTier);
   }
 
   // Check for agent-specific overrides
   if (context.agentType && mergedConfig.agentOverrides?.[context.agentType]) {
     const override = mergedConfig.agentOverrides[context.agentType];
-    return createDecision(override.tier, [override.reason], false);
+    return createDecision(override.tier, mergedConfig.tierModels, [override.reason], false, override.tier);
   }
 
   // Extract signals from the task
@@ -54,24 +65,48 @@ export function routeTask(
 
   if (ruleResult.tier === 'EXPLICIT') {
     // Explicit model was handled above, this shouldn't happen
-    return createDecision('MEDIUM', ['Unexpected EXPLICIT tier'], false);
+    return createDecision('MEDIUM', mergedConfig.tierModels, ['Unexpected EXPLICIT tier'], false);
   }
 
   // Calculate score for confidence and logging
   const score = calculateComplexityScore(signals);
   const scoreTier = scoreToTier(score);
-  const confidence = calculateConfidence(score, ruleResult.tier);
+  let confidence = calculateConfidence(score, ruleResult.tier);
+
+  let finalTier = ruleResult.tier;
+  const tierOrder: ComplexityTier[] = ['LOW', 'MEDIUM', 'HIGH'];
+  const ruleIdx = tierOrder.indexOf(ruleResult.tier);
+  const scoreIdx = tierOrder.indexOf(scoreTier);
+
+  // When scorer and rules diverge by more than 1 level, reduce confidence
+  // and prefer the higher tier to avoid under-provisioning
+  const divergence = Math.abs(ruleIdx - scoreIdx);
+  if (divergence > 1) {
+    confidence = Math.min(confidence, 0.5);
+    finalTier = tierOrder[Math.max(ruleIdx, scoreIdx)];
+  }
 
   const reasons = [
     ruleResult.reason,
     `Rule: ${ruleResult.ruleName}`,
     `Score: ${score} (${scoreTier} tier by score)`,
+    ...(divergence > 1 ? [`Scorer/rules divergence (${divergence} levels): confidence reduced, preferred higher tier`] : []),
   ];
 
+  // Enforce minTier if configured
+  if (mergedConfig.minTier) {
+    const currentIdx = tierOrder.indexOf(finalTier);
+    const minIdx = tierOrder.indexOf(mergedConfig.minTier);
+    if (currentIdx < minIdx) {
+      finalTier = mergedConfig.minTier;
+      reasons.push(`Min tier enforced: ${ruleResult.tier} -> ${finalTier}`);
+    }
+  }
+
   return {
-    model: mergedConfig.tierModels[ruleResult.tier],
-    modelType: TIER_TO_MODEL_TYPE[ruleResult.tier],
-    tier: ruleResult.tier,
+    model: mergedConfig.tierModels[finalTier],
+    modelType: TIER_TO_MODEL_TYPE[finalTier],
+    tier: finalTier,
     confidence,
     reasons,
     escalated: false,
@@ -83,12 +118,13 @@ export function routeTask(
  */
 function createDecision(
   tier: ComplexityTier,
+  tierModels: Record<ComplexityTier, string>,
   reasons: string[],
   escalated: boolean,
   originalTier?: ComplexityTier
 ): RoutingDecision {
   return {
-    model: TIER_MODELS[tier],
+    model: tierModels[tier],
     modelType: TIER_TO_MODEL_TYPE[tier],
     tier,
     confidence: escalated ? 0.9 : 0.7, // Higher confidence after escalation
@@ -217,7 +253,10 @@ export function quickTierForAgent(agentType: string): ComplexityTier | null {
     analyst: 'HIGH',
     explore: 'LOW',
     'writer': 'LOW',
+    'document-specialist': 'MEDIUM',
     researcher: 'MEDIUM',
+    'test-engineer': 'MEDIUM',
+    'tdd-guide': 'MEDIUM',
     'executor': 'MEDIUM',
     'designer': 'MEDIUM',
     'vision': 'MEDIUM',

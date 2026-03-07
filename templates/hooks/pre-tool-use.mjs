@@ -6,19 +6,20 @@
 
 import * as path from 'path';
 import { dirname } from 'path';
-import { fileURLToPath } from 'url';
+import { fileURLToPath, pathToFileURL } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 // Dynamic import for the shared stdin module
-const { readStdin } = await import(path.join(__dirname, 'lib', 'stdin.mjs'));
+const { readStdin } = await import(pathToFileURL(path.join(__dirname, 'lib', 'stdin.mjs')).href);
 
 // Allowed path patterns (no warning)
+// Paths are normalized to forward slashes before matching
 const ALLOWED_PATH_PATTERNS = [
-  /\.omc\//,
-  /\.claude\//,
-  /\/\.claude\//,
+  /^\.omc\//,          // .omc/** (anchored)
+  /^\.claude\//,       // .claude/** (anchored)
+  /\/\.claude\//,      // any /.claude/ path (intentionally unanchored for absolute paths)
   /CLAUDE\.md$/,
   /AGENTS\.md$/,
 ];
@@ -37,7 +38,10 @@ const SOURCE_EXTENSIONS = new Set([
 
 function isAllowedPath(filePath) {
   if (!filePath) return true;
-  return ALLOWED_PATH_PATTERNS.some(pattern => pattern.test(filePath));
+  // Normalize path: convert backslashes, resolve . and .. segments, ensure forward slashes
+  const clean = path.normalize(filePath.replace(/\\/g, '/')).replace(/\\/g, '/');
+  if (clean.startsWith('../') || clean === '..') return false;
+  return ALLOWED_PATH_PATTERNS.some(pattern => pattern.test(clean));
 }
 
 function isSourceFile(filePath) {
@@ -59,6 +63,27 @@ const FILE_MODIFY_PATTERNS = [
 
 // Source file pattern for command inspection
 const SOURCE_EXT_PATTERN = /\.(ts|tsx|js|jsx|mjs|cjs|py|pyw|go|rs|java|kt|scala|c|cpp|cc|h|hpp|rb|php|svelte|vue|graphql|gql|sh|bash|zsh)/i;
+const WORKER_BLOCKED_TMUX_PATTERN = /\btmux\s+(split-window|new-session|new-window|join-pane)\b/i;
+const WORKER_BLOCKED_TEAM_CLI_PATTERN = /\bom[cx]\s+team\b(?!\s+api\b)/i;
+const WORKER_BLOCKED_SKILL_PATTERN = /\$(team|ultrawork|autopilot|ralph)\b/i;
+
+function teamWorkerIdentity() {
+  return (process.env.OMC_TEAM_WORKER || process.env.OMX_TEAM_WORKER || '').trim();
+}
+
+function workerCommandViolation(command) {
+  if (!command) return null;
+  if (WORKER_BLOCKED_TMUX_PATTERN.test(command)) {
+    return 'Team worker cannot run tmux pane/session orchestration commands.';
+  }
+  if (WORKER_BLOCKED_TEAM_CLI_PATTERN.test(command)) {
+    return 'Team worker cannot run team orchestration commands (except `omc team api ...`).';
+  }
+  if (WORKER_BLOCKED_SKILL_PATTERN.test(command)) {
+    return 'Team worker cannot invoke orchestration skills (`$team`, `$ultrawork`, `$autopilot`, `$ralph`).';
+  }
+  return null;
+}
 
 function checkBashCommand(command) {
   // Check if command might modify files
@@ -84,17 +109,49 @@ async function main() {
   try {
     data = JSON.parse(input);
   } catch {
-    console.log(JSON.stringify({ continue: true }));
+    console.log(JSON.stringify({ continue: true, suppressOutput: true }));
     return;
   }
 
   // Extract tool name (handle both cases)
   const toolName = data.tool_name || data.toolName || '';
+  const worker = teamWorkerIdentity();
+
+  if (worker) {
+    if (toolName === 'Task' || toolName === 'task') {
+      console.log(JSON.stringify({
+        continue: false,
+        reason: 'team-worker-task-blocked',
+        message: `Worker ${worker} cannot spawn/delegate Task calls in worker mode.`
+      }));
+      return;
+    }
+
+    if (toolName === 'Skill' || toolName === 'skill') {
+      console.log(JSON.stringify({
+        continue: false,
+        reason: 'team-worker-skill-blocked',
+        message: `Worker ${worker} cannot invoke Skill tool in worker mode.`
+      }));
+      return;
+    }
+  }
 
   // Handle Bash tool separately - check for file modification patterns
   if (toolName === 'Bash' || toolName === 'bash') {
     const toolInput = data.tool_input || data.toolInput || {};
     const command = toolInput.command || '';
+    if (worker) {
+      const violation = workerCommandViolation(command);
+      if (violation) {
+        console.log(JSON.stringify({
+          continue: false,
+          reason: 'team-worker-bash-blocked',
+          message: `${violation}\nCommand blocked: ${command}`
+        }));
+        return;
+      }
+    }
     const warning = checkBashCommand(command);
     if (warning) {
       console.log(JSON.stringify({
@@ -105,14 +162,14 @@ async function main() {
         }
       }));
     } else {
-      console.log(JSON.stringify({ continue: true }));
+      console.log(JSON.stringify({ continue: true, suppressOutput: true }));
     }
     return;
   }
 
   // Only check Edit and Write tools
   if (!['Edit', 'Write', 'edit', 'write'].includes(toolName)) {
-    console.log(JSON.stringify({ continue: true }));
+    console.log(JSON.stringify({ continue: true, suppressOutput: true }));
     return;
   }
 
@@ -122,13 +179,13 @@ async function main() {
 
   // No file path? Allow
   if (!filePath) {
-    console.log(JSON.stringify({ continue: true }));
+    console.log(JSON.stringify({ continue: true, suppressOutput: true }));
     return;
   }
 
   // Check if allowed path
   if (isAllowedPath(filePath)) {
-    console.log(JSON.stringify({ continue: true }));
+    console.log(JSON.stringify({ continue: true, suppressOutput: true }));
     return;
   }
 
@@ -152,9 +209,9 @@ This is a soft warning. Operation will proceed.`;
   }
 
   // Not a source file, allow without warning
-  console.log(JSON.stringify({ continue: true }));
+  console.log(JSON.stringify({ continue: true, suppressOutput: true }));
 }
 
 main().catch(() => {
-  console.log(JSON.stringify({ continue: true }));
+  console.log(JSON.stringify({ continue: true, suppressOutput: true }));
 });

@@ -151,7 +151,7 @@ grep -r "<!-- Parent:" --include="AGENTS.md" .
 | Task | Agent |
 |------|-------|
 | Directory mapping | `explore` |
-| File analysis | `architect-low` |
+| File analysis | `architect` |
 | Content generation | `writer` |
 | AGENTS.md writes | `writer` |
 
@@ -229,12 +229,12 @@ A web application for managing user tasks with real-time collaboration features.
 ## For AI Agents
 
 ### Working In This Directory
-- Always run `npm install` after modifying package.json
+- Always install dependencies after modifying the project manifest
 - Use TypeScript strict mode
 - Follow ESLint rules
 
 ### Testing Requirements
-- Run `npm test` before committing
+- Run tests before committing
 - Ensure >80% coverage
 
 ### Common Patterns
