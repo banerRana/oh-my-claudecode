@@ -14,6 +14,9 @@
 
 import { existsSync, readFileSync, writeFileSync, unlinkSync, mkdirSync } from 'fs';
 import { join } from 'path';
+import { resolveSessionStatePath, ensureSessionStateDir, getOmcRoot } from '../../lib/worktree-paths.js';
+import type { UserStory } from './prd.js';
+import type { RalphCriticMode } from './loop.js';
 
 export interface VerificationState {
   /** Whether verification is pending */
@@ -32,22 +35,66 @@ export interface VerificationState {
   requested_at: string;
   /** Original ralph task */
   original_task: string;
+  /** Reviewer mode to use for verification */
+  critic_mode?: RalphCriticMode;
 }
 
 const DEFAULT_MAX_VERIFICATION_ATTEMPTS = 3;
+const DEFAULT_RALPH_CRITIC_MODE: RalphCriticMode = 'architect';
+
+function getCriticMode(mode?: RalphCriticMode): RalphCriticMode {
+  return mode ?? DEFAULT_RALPH_CRITIC_MODE;
+}
+
+function getCriticLabel(mode?: RalphCriticMode): string {
+  switch (getCriticMode(mode)) {
+    case 'critic':
+      return 'Critic';
+    case 'codex':
+      return 'Codex critic';
+    default:
+      return 'Architect';
+  }
+}
+
+function getVerificationAgentStep(mode?: RalphCriticMode): string {
+  switch (getCriticMode(mode)) {
+    case 'critic':
+      return `1. **Spawn Critic Agent** for verification:
+   \`\`\`
+   Task(subagent_type="critic", prompt="Critically review this task completion claim...")
+   \`\`\``;
+    case 'codex':
+      return `1. **Run an external Codex critic review**:
+   \`\`\`
+   omc ask codex --agent-prompt critic "<verification prompt covering the task, completion claim, and acceptance criteria>"
+   \`\`\`
+   Use the Codex output as the reviewer verdict before deciding pass/fix.`;
+    default:
+      return `1. **Spawn Architect Agent** for verification:
+   \`\`\`
+   Task(subagent_type="architect", prompt="Verify this task completion claim...")
+   \`\`\``;
+  }
+}
 
 /**
  * Get verification state file path
+ * When sessionId is provided, uses session-scoped path.
  */
-function getVerificationStatePath(directory: string): string {
-  return join(directory, '.omc', 'ralph-verification.json');
+function getVerificationStatePath(directory: string, sessionId?: string): string {
+  if (sessionId) {
+    return resolveSessionStatePath('ralph-verification', sessionId, directory);
+  }
+  return join(getOmcRoot(directory), 'ralph-verification.json');
 }
 
 /**
  * Read verification state
+ * @param sessionId - When provided, reads from session-scoped path only (no legacy fallback)
  */
-export function readVerificationState(directory: string): VerificationState | null {
-  const statePath = getVerificationStatePath(directory);
+export function readVerificationState(directory: string, sessionId?: string): VerificationState | null {
+  const statePath = getVerificationStatePath(directory, sessionId);
   if (!existsSync(statePath)) {
     return null;
   }
@@ -61,15 +108,19 @@ export function readVerificationState(directory: string): VerificationState | nu
 /**
  * Write verification state
  */
-export function writeVerificationState(directory: string, state: VerificationState): boolean {
-  const statePath = getVerificationStatePath(directory);
-  const stateDir = join(directory, '.omc');
+export function writeVerificationState(directory: string, state: VerificationState, sessionId?: string): boolean {
+  const statePath = getVerificationStatePath(directory, sessionId);
 
-  if (!existsSync(stateDir)) {
-    try {
-      mkdirSync(stateDir, { recursive: true });
-    } catch {
-      return false;
+  if (sessionId) {
+    ensureSessionStateDir(sessionId, directory);
+  } else {
+    const stateDir = getOmcRoot(directory);
+    if (!existsSync(stateDir)) {
+      try {
+        mkdirSync(stateDir, { recursive: true });
+      } catch {
+        return false;
+      }
     }
   }
 
@@ -83,9 +134,10 @@ export function writeVerificationState(directory: string, state: VerificationSta
 
 /**
  * Clear verification state
+ * @param sessionId - When provided, clears session-scoped state only
  */
-export function clearVerificationState(directory: string): boolean {
-  const statePath = getVerificationStatePath(directory);
+export function clearVerificationState(directory: string, sessionId?: string): boolean {
+  const statePath = getVerificationStatePath(directory, sessionId);
   if (existsSync(statePath)) {
     try {
       unlinkSync(statePath);
@@ -103,7 +155,9 @@ export function clearVerificationState(directory: string): boolean {
 export function startVerification(
   directory: string,
   completionClaim: string,
-  originalTask: string
+  originalTask: string,
+  criticMode?: RalphCriticMode,
+  sessionId?: string
 ): VerificationState {
   const state: VerificationState = {
     pending: true,
@@ -111,10 +165,11 @@ export function startVerification(
     verification_attempts: 0,
     max_verification_attempts: DEFAULT_MAX_VERIFICATION_ATTEMPTS,
     requested_at: new Date().toISOString(),
-    original_task: originalTask
+    original_task: originalTask,
+    critic_mode: getCriticMode(criticMode)
   };
 
-  writeVerificationState(directory, state);
+  writeVerificationState(directory, state, sessionId);
   return state;
 }
 
@@ -124,9 +179,10 @@ export function startVerification(
 export function recordArchitectFeedback(
   directory: string,
   approved: boolean,
-  feedback: string
+  feedback: string,
+  sessionId?: string
 ): VerificationState | null {
-  const state = readVerificationState(directory);
+  const state = readVerificationState(directory, sessionId);
   if (!state) {
     return null;
   }
@@ -137,30 +193,43 @@ export function recordArchitectFeedback(
 
   if (approved) {
     // Clear state on approval
-    clearVerificationState(directory);
+    clearVerificationState(directory, sessionId);
     return { ...state, pending: false };
   }
 
   // Check if max attempts reached
   if (state.verification_attempts >= state.max_verification_attempts) {
-    clearVerificationState(directory);
+    clearVerificationState(directory, sessionId);
     return { ...state, pending: false };
   }
 
   // Continue verification loop
-  writeVerificationState(directory, state);
+  writeVerificationState(directory, state, sessionId);
   return state;
 }
 
 /**
  * Generate architect verification prompt
+ * When a currentStory is provided, includes its specific acceptance criteria for targeted verification.
  */
-export function getArchitectVerificationPrompt(state: VerificationState): string {
+export function getArchitectVerificationPrompt(state: VerificationState, currentStory?: UserStory): string {
+  const criticLabel = getCriticLabel(state.critic_mode);
+  const approvalTag = `<ralph-approved critic="${getCriticMode(state.critic_mode)}">VERIFIED_COMPLETE</ralph-approved>`;
+  const storySection = currentStory ? `
+**Current Story: ${currentStory.id} - ${currentStory.title}**
+${currentStory.description}
+
+**Acceptance Criteria to Verify:**
+${currentStory.acceptanceCriteria.map((c, i) => `${i + 1}. ${c}`).join('\n')}
+
+IMPORTANT: Verify EACH acceptance criterion above is met. Do not verify based on general impressions — check each criterion individually with concrete evidence.
+` : '';
+
   return `<ralph-verification>
 
-[ARCHITECT VERIFICATION REQUIRED - Attempt ${state.verification_attempts + 1}/${state.max_verification_attempts}]
+[${criticLabel.toUpperCase()} VERIFICATION REQUIRED - Attempt ${state.verification_attempts + 1}/${state.max_verification_attempts}]
 
-The agent claims the task is complete. Before accepting, YOU MUST verify with Architect.
+The agent claims the task is complete. Before accepting, YOU MUST verify with ${criticLabel}.
 
 **Original Task:**
 ${state.original_task}
@@ -168,24 +237,23 @@ ${state.original_task}
 **Completion Claim:**
 ${state.completion_claim}
 
-${state.architect_feedback ? `**Previous Architect Feedback (rejected):**\n${state.architect_feedback}\n` : ''}
-
+${state.architect_feedback ? `**Previous ${criticLabel} Feedback (rejected):**\n${state.architect_feedback}\n` : ''}
+${storySection}
 ## MANDATORY VERIFICATION STEPS
 
-1. **Spawn Architect Agent** for verification:
-   \`\`\`
-   Task(subagent_type="architect", prompt="Verify this task completion claim...")
-   \`\`\`
+${getVerificationAgentStep(state.critic_mode)}
 
-2. **Architect must check:**
+2. **${criticLabel} must check:**${currentStory ? `
+   - Verify EACH acceptance criterion listed above is met with fresh evidence
+   - Run the relevant tests/builds to confirm criteria pass` : `
    - Are ALL requirements from the original task met?
-   - Is the implementation complete, not partial?
+   - Is the implementation complete, not partial?`}
    - Are there any obvious bugs or issues?
    - Does the code compile/run without errors?
    - Are tests passing (if applicable)?
 
-3. **Based on Architect's response:**
-   - If APPROVED: Output \`<architect-approved>VERIFIED_COMPLETE</architect-approved>\`, then run \`/oh-my-claudecode:cancel\` to cleanly exit
+3. **Based on ${criticLabel}'s response:**
+   - If APPROVED: Output \`${approvalTag}\`, then run \`/oh-my-claudecode:cancel\` to cleanly exit
    - If REJECTED: Continue working on the identified issues
 
 </ralph-verification>
@@ -199,13 +267,14 @@ ${state.architect_feedback ? `**Previous Architect Feedback (rejected):**\n${sta
  * Generate continuation prompt after architect rejection
  */
 export function getArchitectRejectionContinuationPrompt(state: VerificationState): string {
+  const criticLabel = getCriticLabel(state.critic_mode);
   return `<ralph-continuation-after-rejection>
 
-[ARCHITECT REJECTED - Continue Working]
+[${criticLabel.toUpperCase()} REJECTED - Continue Working]
 
-Architect found issues with your completion claim. You must address them.
+${criticLabel} found issues with your completion claim. You must address them.
 
-**Architect Feedback:**
+**${criticLabel} Feedback:**
 ${state.architect_feedback}
 
 **Original Task:**
@@ -213,10 +282,10 @@ ${state.original_task}
 
 ## INSTRUCTIONS
 
-1. Address ALL issues identified by Architect
+1. Address ALL issues identified by ${criticLabel}
 2. Do NOT claim completion again until issues are fixed
-3. When truly done, another Architect verification will be triggered
-4. After Architect approves, run \`/oh-my-claudecode:cancel\` to cleanly exit
+3. When truly done, another ${criticLabel} verification will be triggered
+4. After ${criticLabel} approves, run \`/oh-my-claudecode:cancel\` to cleanly exit
 
 Continue working now.
 
@@ -231,7 +300,7 @@ Continue working now.
  * Check if text contains architect approval
  */
 export function detectArchitectApproval(text: string): boolean {
-  return /<architect-approved>.*?VERIFIED_COMPLETE.*?<\/architect-approved>/is.test(text);
+  return /<(?:architect-approved|ralph-approved)(?:\s+[^>]*)?>.*?VERIFIED_COMPLETE.*?<\/(?:architect-approved|ralph-approved)>/is.test(text);
 }
 
 /**
@@ -240,7 +309,7 @@ export function detectArchitectApproval(text: string): boolean {
 export function detectArchitectRejection(text: string): { rejected: boolean; feedback: string } {
   // Look for explicit rejection patterns
   const rejectionPatterns = [
-    /architect.*?(rejected|found issues|not complete|incomplete)/i,
+    /(architect|critic|codex|reviewer).*?(rejected|found issues|not complete|incomplete)/i,
     /issues? (found|identified|detected)/i,
     /not yet complete/i,
     /missing.*?(implementation|feature|test)/i,
@@ -251,7 +320,7 @@ export function detectArchitectRejection(text: string): { rejected: boolean; fee
   for (const pattern of rejectionPatterns) {
     if (pattern.test(text)) {
       // Extract feedback (rough heuristic)
-      const feedbackMatch = text.match(/(?:architect|feedback|issue|problem|error|bug)[:\s]+([^.]+\.)/i);
+      const feedbackMatch = text.match(/(?:architect|critic|codex|reviewer|feedback|issue|problem|error|bug)[:\s]+([^.]+\.)/i);
       return {
         rejected: true,
         feedback: feedbackMatch ? feedbackMatch[1] : 'Architect found issues with the implementation.'

@@ -1,211 +1,213 @@
 ---
 name: ralph
-description: Self-referential loop until task completion with architect verification
+description: Self-referential loop until task completion with configurable verification reviewer
 ---
-
-# Ralph Skill
 
 [RALPH + ULTRAWORK - ITERATION {{ITERATION}}/{{MAX}}]
 
 Your previous attempt did not output the completion promise. Continue working on the task.
 
-## PRD MODE (OPTIONAL)
+<Purpose>
+Ralph is a PRD-driven persistence loop that keeps working on a task until ALL user stories in prd.json have passes: true and are reviewer-verified. It wraps ultrawork's parallel execution with session persistence, automatic retry on failure, structured story tracking, and mandatory verification before completion.
+</Purpose>
 
-If the user provides the `--prd` flag, initialize a PRD (Product Requirements Document) BEFORE starting the ralph loop.
+<Use_When>
+- Task requires guaranteed completion with verification (not just "do your best")
+- User says "ralph", "don't stop", "must complete", "finish this", or "keep going until done"
+- Work may span multiple iterations and needs persistence across retries
+- Task benefits from structured PRD-driven execution with reviewer sign-off
+</Use_When>
 
-### Detecting PRD Mode
+<Do_Not_Use_When>
+- User wants a full autonomous pipeline from idea to code -- use `autopilot` instead
+- User wants to explore or plan before committing -- use `plan` skill instead
+- User wants a quick one-shot fix -- delegate directly to an executor agent
+- User wants manual control over completion -- use `ultrawork` directly
+</Do_Not_Use_When>
 
-Check if `{{PROMPT}}` contains the flag pattern: `--prd` or `--PRD`
+<Why_This_Exists>
+Complex tasks often fail silently: partial implementations get declared "done", tests get skipped, edge cases get forgotten. Ralph prevents this by:
+1. Structuring work into discrete user stories with testable acceptance criteria (prd.json)
+2. Iterating story-by-story until each one passes
+3. Tracking progress and learnings across iterations (progress.txt)
+4. Requiring fresh reviewer verification against specific acceptance criteria before completion
+</Why_This_Exists>
 
-### PRD Initialization Workflow
+<PRD_Mode>
+By default, ralph operates in PRD mode. A scaffold `prd.json` is auto-generated when ralph starts if none exists.
 
-When `--prd` flag detected:
+**Opt-out:** If `{{PROMPT}}` contains `--no-prd`, skip PRD generation and work in legacy mode (no story tracking, generic verification). Use this for trivial quick fixes.
 
-1. **Create PRD File Structure** (`.omc/prd.json` and `.omc/progress.txt`)
-2. **Parse the task** (everything after `--prd` flag)
-3. **Break down into user stories** with this structure:
+**Reviewer selection:** Pass `--critic=architect`, `--critic=critic`, or `--critic=codex` in the Ralph prompt to choose the completion reviewer for that run. `architect` remains the default.
+</PRD_Mode>
 
-```json
-{
-  "project": "[Project Name]",
-  "branchName": "ralph/[feature-name]",
-  "description": "[Feature description]",
-  "userStories": [
-    {
-      "id": "US-001",
-      "title": "[Short title]",
-      "description": "As a [user], I want to [action] so that [benefit].",
-      "acceptanceCriteria": ["Criterion 1", "Typecheck passes"],
-      "priority": 1,
-      "passes": false
-    }
+<Execution_Policy>
+- Fire independent agent calls simultaneously -- never wait sequentially for independent work
+- Use `run_in_background: true` for long operations (installs, builds, test suites)
+- Always pass the `model` parameter explicitly when delegating to agents
+- Read `docs/shared/agent-tiers.md` before first delegation to select correct agent tiers
+- Deliver the full implementation: no scope reduction, no partial completion, no deleting tests to make them pass
+</Execution_Policy>
+
+<Steps>
+1. **PRD Setup** (first iteration only):
+   a. Check if `prd.json` exists (in project root or `.omc/`). If it already exists, read it and proceed to Step 2.
+   b. If no `prd.json` exists, the system has auto-generated a scaffold. Read `.omc/prd.json`.
+   c. **CRITICAL: Refine the scaffold.** The auto-generated PRD has generic acceptance criteria ("Implementation is complete", etc.). You MUST replace these with task-specific criteria:
+      - Analyze the original task and break it into right-sized user stories (each completable in one iteration)
+      - Write concrete, verifiable acceptance criteria for each story (e.g., "Function X returns Y when given Z", "Test file exists at path P and passes")
+      - If acceptance criteria are generic (e.g., "Implementation is complete"), REPLACE them with task-specific criteria before proceeding
+      - Order stories by priority (foundational work first, dependent work later)
+      - Write the refined `prd.json` back to disk
+   d. Initialize `progress.txt` if it doesn't exist
+
+2. **Pick next story**: Read `prd.json` and select the highest-priority story with `passes: false`. This is your current focus.
+
+3. **Implement the current story**:
+   - Delegate to specialist agents at appropriate tiers:
+     - Simple lookups: LOW tier (Haiku) -- "What does this function return?"
+     - Standard work: MEDIUM tier (Sonnet) -- "Add error handling to this module"
+     - Complex analysis: HIGH tier (Opus) -- "Debug this race condition"
+   - If during implementation you discover sub-tasks, add them as new stories to `prd.json`
+   - Run long operations in background: Builds, installs, test suites use `run_in_background: true`
+
+4. **Verify the current story's acceptance criteria**:
+   a. For EACH acceptance criterion in the story, verify it is met with fresh evidence
+   b. Run relevant checks (test, build, lint, typecheck) and read the output
+   c. If any criterion is NOT met, continue working -- do NOT mark the story as complete
+
+5. **Mark story complete**:
+   a. When ALL acceptance criteria are verified, set `passes: true` for this story in `prd.json`
+   b. Record progress in `progress.txt`: what was implemented, files changed, learnings for future iterations
+   c. Add any discovered codebase patterns to `progress.txt`
+
+6. **Check PRD completion**:
+   a. Read `prd.json` -- are ALL stories marked `passes: true`?
+   b. If NOT all complete, loop back to Step 2 (pick next story)
+   c. If ALL complete, proceed to Step 7 (architect verification)
+
+7. **Reviewer verification** (tiered, against acceptance criteria):
+   - <5 files, <100 lines with full tests: STANDARD tier minimum (architect-medium / Sonnet)
+   - Standard changes: STANDARD tier (architect-medium / Sonnet)
+   - >20 files or security/architectural changes: THOROUGH tier (architect / Opus)
+   - If `--critic=critic`, use the Claude `critic` agent for the approval pass
+   - If `--critic=codex`, run `omc ask codex --agent-prompt critic "..."` for the approval pass
+   - Ralph floor: always at least STANDARD, even for small changes
+   - The selected reviewer verifies against the SPECIFIC acceptance criteria from prd.json, not vague "is it done?"
+
+8. **On approval**: Run `/oh-my-claudecode:cancel` to cleanly exit and clean up all state files
+
+9. **On rejection**: Fix the issues raised, re-verify with the same reviewer, then loop back to check if the story needs to be marked incomplete
+</Steps>
+
+<Tool_Usage>
+- Use `Task(subagent_type="oh-my-claudecode:architect", ...)` for architect verification cross-checks when changes are security-sensitive, architectural, or involve complex multi-system integration
+- Use `Task(subagent_type="oh-my-claudecode:critic", ...)` when `--critic=critic`
+- Use `omc ask codex --agent-prompt critic "..."` when `--critic=codex`
+- Skip architect consultation for simple feature additions, well-tested changes, or time-critical verification
+- Proceed with architect agent verification alone -- never block on unavailable tools
+- Use `state_write` / `state_read` for ralph mode state persistence between iterations
+</Tool_Usage>
+
+<Examples>
+<Good>
+PRD refinement in Step 1:
+```
+Auto-generated scaffold has:
+  acceptanceCriteria: ["Implementation is complete", "Code compiles without errors"]
+
+After refinement:
+  acceptanceCriteria: [
+    "detectNoPrdFlag('ralph --no-prd fix') returns true",
+    "detectNoPrdFlag('ralph fix this') returns false",
+    "stripNoPrdFlag removes --no-prd and trims whitespace",
+    "TypeScript compiles with no errors (npm run build)"
   ]
-}
 ```
+Why good: Generic criteria replaced with specific, testable criteria.
+</Good>
 
-4. **Create progress.txt**:
-
+<Good>
+Correct parallel delegation:
 ```
-# Ralph Progress Log
-Started: [ISO timestamp]
-
-## Codebase Patterns
-(No patterns discovered yet)
-
----
+Task(subagent_type="oh-my-claudecode:executor", model="haiku", prompt="Add type export for UserConfig")
+Task(subagent_type="oh-my-claudecode:executor", model="sonnet", prompt="Implement the caching layer for API responses")
+Task(subagent_type="oh-my-claudecode:executor", model="opus", prompt="Refactor auth module to support OAuth2 flow")
 ```
+Why good: Three independent tasks fired simultaneously at appropriate tiers.
+</Good>
 
-5. **Guidelines for PRD creation**:
-   - Right-sized stories: Each completable in one focused session
-   - Verifiable criteria: Include "Typecheck passes", "Tests pass"
-   - Independent stories: Minimize dependencies
-   - Priority order: Foundational work (DB, types) before UI
-
-6. **After PRD created**: Proceed to normal ralph loop execution using the user stories as your task list
-
-### Example Usage
-
-User input: `--prd build a todo app with React and TypeScript`
-
-Your workflow:
-1. Detect `--prd` flag
-2. Extract task: "build a todo app with React and TypeScript"
-3. Create `.omc/prd.json` with user stories
-4. Create `.omc/progress.txt`
-5. Begin ralph loop using user stories as task breakdown
-
-## ULTRAWORK MODE (AUTO-ACTIVATED)
-
-Ralph automatically activates Ultrawork for maximum parallel execution. You MUST follow these rules:
-
-### Parallel Execution Rules
-- **PARALLEL**: Fire independent calls simultaneously - NEVER wait sequentially
-- **BACKGROUND FIRST**: Use Task(run_in_background=true) for long operations (10+ concurrent)
-- **DELEGATE**: Route tasks to specialist agents immediately
-
-### Smart Model Routing (SAVE TOKENS)
-
-| Task Complexity | Tier | Examples |
-|-----------------|------|----------|
-| Simple lookups | LOW (haiku) | "What does this function return?", "Find where X is defined" |
-| Standard work | MEDIUM (sonnet) | "Add error handling", "Implement this feature" |
-| Complex analysis | HIGH (opus) | "Debug this race condition", "Refactor auth module" |
-
-### Available Agents by Tier
-
-| Domain | LOW (Haiku) | MEDIUM (Sonnet) | HIGH (Opus) |
-|--------|-------------|-----------------|-------------|
-| **Analysis** | `architect-low` | `architect-medium` | `architect` |
-| **Execution** | `executor-low` | `executor` | `executor-high` |
-| **Search** | `explore` | `explore-medium` | - |
-| **Research** | `researcher-low` | `researcher` | - |
-| **Frontend** | `designer-low` | `designer` | `designer-high` |
-| **Docs** | `writer` | - | - |
-| **Visual** | - | `vision` | - |
-| **Planning** | - | - | `planner` |
-| **Critique** | - | - | `critic` |
-| **Pre-Planning** | - | - | `analyst` |
-| **Testing** | - | `qa-tester` | - |
-| **Security** | `security-reviewer-low` | - | `security-reviewer` |
-| **Build** | `build-fixer-low` | `build-fixer` | - |
-| **TDD** | `tdd-guide-low` | `tdd-guide` | - |
-| **Code Review** | `code-reviewer-low` | - | `code-reviewer` |
-
-**CRITICAL: Always pass `model` parameter explicitly!**
+<Good>
+Story-by-story verification:
 ```
-Task(subagent_type="oh-my-claudecode:architect-low", model="haiku", prompt="...")
-Task(subagent_type="oh-my-claudecode:executor", model="sonnet", prompt="...")
-Task(subagent_type="oh-my-claudecode:architect", model="opus", prompt="...")
+1. Story US-001: "Add flag detection helpers"
+   - Criterion: "detectNoPrdFlag returns true for --no-prd" → Run test → PASS
+   - Criterion: "TypeScript compiles" → Run build → PASS
+   - Mark US-001 passes: true
+2. Story US-002: "Wire PRD into bridge.ts"
+   - Continue to next story...
 ```
+Why good: Each story verified against its own acceptance criteria before marking complete.
+</Good>
 
-### Background Execution Rules
+<Bad>
+Claiming completion without PRD verification:
+"All the changes look good, the implementation should work correctly. Task complete."
+Why bad: Uses "should" and "look good" -- no fresh evidence, no story-by-story verification, no architect review.
+</Bad>
 
-**Run in Background** (set `run_in_background: true`):
-- Package installation: npm install, pip install, cargo build
-- Build processes: npm run build, make, tsc
-- Test suites: npm test, pytest, cargo test
-- Docker operations: docker build, docker pull
+<Bad>
+Sequential execution of independent tasks:
+```
+Task(executor, "Add type export") → wait →
+Task(executor, "Implement caching") → wait →
+Task(executor, "Refactor auth")
+```
+Why bad: These are independent tasks that should run in parallel, not sequentially.
+</Bad>
 
-**Run Blocking** (foreground):
-- Quick status checks: git status, ls, pwd
-- File reads, edits
+<Bad>
+Keeping generic acceptance criteria:
+"prd.json created with criteria: Implementation is complete, Code compiles. Moving on to coding."
+Why bad: Did not refine scaffold criteria into task-specific ones. This is PRD theater.
+</Bad>
+</Examples>
+
+<Escalation_And_Stop_Conditions>
+- Stop and report when a fundamental blocker requires user input (missing credentials, unclear requirements, external service down)
+- Stop when the user says "stop", "cancel", or "abort" -- run `/oh-my-claudecode:cancel`
+- Continue working when the hook system sends "The boulder never stops" -- this means the iteration continues
+- If the selected reviewer rejects verification, fix the issues and re-verify (do not stop)
+- If the same issue recurs across 3+ iterations, report it as a potential fundamental problem
+</Escalation_And_Stop_Conditions>
+
+<Final_Checklist>
+- [ ] All prd.json stories have `passes: true` (no incomplete stories)
+- [ ] prd.json acceptance criteria are task-specific (not generic boilerplate)
+- [ ] All requirements from the original task are met (no scope reduction)
+- [ ] Zero pending or in_progress TODO items
+- [ ] Fresh test run output shows all tests pass
+- [ ] Fresh build output shows success
+- [ ] lsp_diagnostics shows 0 errors on affected files
+- [ ] progress.txt records implementation details and learnings
+- [ ] Selected reviewer verification passed against specific acceptance criteria
+- [ ] `/oh-my-claudecode:cancel` run for clean state cleanup
+</Final_Checklist>
+
+<Advanced>
+## Background Execution Rules
+
+**Run in background** (`run_in_background: true`):
+- Package installation (npm install, pip install, cargo build)
+- Build processes (make, project build commands)
+- Test suites
+- Docker operations (docker build, docker pull)
+
+**Run blocking** (foreground):
+- Quick status checks (git status, ls, pwd)
+- File reads and edits
 - Simple commands
-
-## COMPLETION REQUIREMENTS
-
-Before claiming completion, you MUST:
-1. Verify ALL requirements from the original task are met
-2. Ensure no partial implementations
-3. Check that code compiles/runs without errors
-4. Verify tests pass (if applicable)
-5. TODO LIST: Zero pending/in_progress tasks
-
-## VERIFICATION BEFORE COMPLETION (IRON LAW)
-
-**NO COMPLETION CLAIMS WITHOUT FRESH VERIFICATION EVIDENCE**
-
-Before outputting the completion promise:
-
-### Steps (MANDATORY)
-1. **IDENTIFY**: What command proves the task is complete?
-2. **RUN**: Execute verification (test, build, lint)
-3. **READ**: Check output - did it actually pass?
-4. **ONLY THEN**: Proceed to Architect verification
-
-### Red Flags (STOP and verify)
-- Using "should", "probably", "seems to"
-- About to output completion without fresh evidence
-- Expressing satisfaction before verification
-
-### Evidence Chain
-1. Fresh test run output showing pass
-2. Fresh build output showing success
-3. lsp_diagnostics showing 0 errors
-4. THEN Architect verification
-5. THEN completion promise
-
-**Skipping verification = Task NOT complete**
-
-## ARCHITECT VERIFICATION (MANDATORY)
-
-When you believe the task is complete:
-1. **First**, spawn Architect to verify your work (ALWAYS pass model explicitly!):
-   ```
-   Task(subagent_type="oh-my-claudecode:architect", model="opus", prompt="Verify this implementation is complete: [describe what you did]")
-   ```
-
-2. **Wait for Architect's assessment**
-
-3. **If Architect approves**: Run `/oh-my-claudecode:cancel` to cleanly exit ralph mode
-4. **If Architect finds issues**: Fix them, then repeat verification
-
-DO NOT exit without Architect verification.
-
-## ZERO TOLERANCE
-
-- NO Scope Reduction - deliver FULL implementation
-- NO Partial Completion - finish 100%
-- NO Premature Stopping - ALL TODOs must be complete
-- NO TEST DELETION - fix code, not tests
-
-## STATE CLEANUP ON COMPLETION
-
-**IMPORTANT: Use the cancel skill for proper state cleanup**
-
-When work is complete and Architect verification passes, run `/oh-my-claudecode:cancel` to cleanly exit ralph mode. This handles:
-- Deletion of ralph state files (both local and global)
-- Cleanup of linked ultrawork or ecomode state
-- Proper termination of the ralph loop
-
-This ensures clean state for future sessions without leaving stale state files behind.
-
-## INSTRUCTIONS
-
-- Review your progress so far
-- Continue from where you left off
-- Use parallel execution and background tasks
-- When FULLY complete AND Architect verified: Run `/oh-my-claudecode:cancel` to cleanly exit and clean up all state files
-- Do not stop until the task is truly done
+</Advanced>
 
 Original task:
 {{PROMPT}}

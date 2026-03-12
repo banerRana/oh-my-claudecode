@@ -8,13 +8,10 @@ describe('Builtin Skills', () => {
   });
 
   describe('createBuiltinSkills()', () => {
-    it('should return correct number of skills (37)', () => {
+    it('should return correct number of skills (29 including aliases)', () => {
       const skills = createBuiltinSkills();
-      // 37 skills: analyze, autopilot, build-fix, cancel, code-review, deepinit, deepsearch, doctor, ecomode,
-      // frontend-ui-ux, git-master, help, hud, learn-about-omc, learner, local-skills-setup, mcp-setup, note,
-      // omc-setup, orchestrate, pipeline, plan, project-session-manager, ralph, ralph-init, ralplan, release, research, review,
-      // security-review, skill, swarm, tdd, ultrapilot, ultraqa, ultrawork, writer-memory
-      expect(skills).toHaveLength(37);
+      // 29 entries: 28 canonical skills + 1 deprecated alias (psm)
+      expect(skills).toHaveLength(29);
     });
 
     it('should return an array of BuiltinSkill objects', () => {
@@ -64,40 +61,32 @@ describe('Builtin Skills', () => {
     it('should have valid skill names', () => {
       const skills = createBuiltinSkills();
       const expectedSkills = [
-        'analyze',
+        'ask',
+        'ai-slop-cleaner',
         'autopilot',
-        'build-fix',
         'cancel',
-        'code-review',
+        'ccg',
+        'configure-notifications',
+        'deep-interview',
         'deepinit',
-        'deepsearch',
-        'doctor',
-        'ecomode',
-        'frontend-ui-ux',
-        'git-master',
-        'help',
+        'omc-doctor',
+        'external-context',
         'hud',
-        'learn-about-omc',
         'learner',
-        'local-skills-setup',
         'mcp-setup',
-        'note',
         'omc-setup',
-        'orchestrate',
-        'pipeline',
-        'plan',
+        'omc-teams',
+        'omc-plan',
         'project-session-manager',
+        'psm',
         'ralph',
-        'ralph-init',
         'ralplan',
         'release',
-        'research',
-        'review',
-        'security-review',
+        'sciomc',
+        'setup',
         'skill',
-        'swarm',
-        'tdd',
-        'ultrapilot',
+        'team',
+        'trace',
         'ultraqa',
         'ultrawork',
         'writer-memory',
@@ -118,15 +107,91 @@ describe('Builtin Skills', () => {
 
   describe('getBuiltinSkill()', () => {
     it('should retrieve a skill by name', () => {
-      const skill = getBuiltinSkill('orchestrate');
+      const skill = getBuiltinSkill('autopilot');
       expect(skill).toBeDefined();
-      expect(skill?.name).toBe('orchestrate');
+      expect(skill?.name).toBe('autopilot');
+    });
+
+    it('should retrieve the ai-slop-cleaner skill by name', () => {
+      const skill = getBuiltinSkill('ai-slop-cleaner');
+      expect(skill).toBeDefined();
+      expect(skill?.name).toBe('ai-slop-cleaner');
+    });
+
+    it('should retrieve the trace skill by name', () => {
+      const skill = getBuiltinSkill('trace');
+      expect(skill).toBeDefined();
+      expect(skill?.name).toBe('trace');
+      expect(skill?.template).toContain('Claude built-in team mode');
+      expect(skill?.template).toContain('3 tracer lanes by default');
+      expect(skill?.template).toContain('Ranked Hypotheses');
+      expect(skill?.template).toContain('trace_timeline');
+      expect(skill?.template).toContain('trace_summary');
+    });
+
+    it('should expose pipeline metadata for deep-interview handoff into omc-plan', () => {
+      const skill = getBuiltinSkill('deep-interview');
+      expect(skill?.pipeline).toEqual({
+        steps: ['deep-interview', 'omc-plan', 'autopilot'],
+        nextSkill: 'omc-plan',
+        nextSkillArgs: '--consensus --direct',
+        handoff: '.omc/specs/deep-interview-{slug}.md',
+      });
+      expect(skill?.template).toContain('## Skill Pipeline');
+      expect(skill?.template).toContain('Pipeline: `deep-interview → omc-plan → autopilot`');
+      expect(skill?.template).toContain('Skill("oh-my-claudecode:omc-plan")');
+      expect(skill?.template).toContain('`--consensus --direct`');
+      expect(skill?.template).toContain('`.omc/specs/deep-interview-{slug}.md`');
+    });
+
+    it('should expose pipeline metadata for omc-plan handoff into autopilot', () => {
+      const skill = getBuiltinSkill('omc-plan');
+      expect(skill?.pipeline).toEqual({
+        steps: ['deep-interview', 'omc-plan', 'autopilot'],
+        nextSkill: 'autopilot',
+        handoff: '.omc/plans/ralplan-*.md',
+      });
+      expect(skill?.template).toContain('## Skill Pipeline');
+      expect(skill?.template).toContain('Next skill: `autopilot`');
+      expect(skill?.template).toContain('Skill("oh-my-claudecode:autopilot")');
+      expect(skill?.template).toContain('`.omc/plans/ralplan-*.md`');
+    });
+
+    it('should expose review mode guidance for ai-slop-cleaner', () => {
+      const skill = getBuiltinSkill('ai-slop-cleaner');
+      expect(skill).toBeDefined();
+      expect(skill?.template).toContain('Review Mode (`--review`)');
+      expect(skill?.template).toContain('writer/reviewer separation');
+    });
+
+    it('should include the ai-slop-cleaner review workflow', () => {
+      const skill = getBuiltinSkill('ai-slop-cleaner');
+      expect(skill).toBeDefined();
+      expect(skill?.template).toContain('--review');
+      expect(skill?.template).toContain('Writer pass');
+      expect(skill?.template).toContain('Reviewer pass');
+    });
+
+    it('should require explicit tmux prerequisite checks for omc-teams', () => {
+      const skill = getBuiltinSkill('omc-teams');
+      expect(skill).toBeDefined();
+      expect(skill?.template).toContain('command -v tmux >/dev/null 2>&1');
+      expect(skill?.template).toContain('Do **not** say tmux is missing');
+      expect(skill?.template).toContain('tmux capture-pane -pt <pane-id> -S -20');
+    });
+
+    it('should document allowed omc-teams agent types and native team fallback', () => {
+      const skill = getBuiltinSkill('omc-teams');
+      expect(skill).toBeDefined();
+      expect(skill?.template).toContain('/omc-teams` only supports **`claude`**, **`codex`**, and **`gemini`**');
+      expect(skill?.template).toContain('unsupported type such as `expert`');
+      expect(skill?.template).toContain('/oh-my-claudecode:team');
     });
 
     it('should be case-insensitive', () => {
-      const skillLower = getBuiltinSkill('orchestrate');
-      const skillUpper = getBuiltinSkill('ORCHESTRATE');
-      const skillMixed = getBuiltinSkill('OrChEsTrAtE');
+      const skillLower = getBuiltinSkill('autopilot');
+      const skillUpper = getBuiltinSkill('AUTOPILOT');
+      const skillMixed = getBuiltinSkill('AuToPiLoT');
 
       expect(skillLower).toBeDefined();
       expect(skillUpper).toBeDefined();
@@ -142,29 +207,28 @@ describe('Builtin Skills', () => {
   });
 
   describe('listBuiltinSkillNames()', () => {
-    it('should return all skill names', () => {
+    it('should return canonical skill names by default', () => {
       const names = listBuiltinSkillNames();
-      expect(names).toHaveLength(37);
-      expect(names).toContain('orchestrate');
+
+      expect(names).toHaveLength(28);
+      expect(names).toContain('ai-slop-cleaner');
+      expect(names).toContain('ask');
       expect(names).toContain('autopilot');
       expect(names).toContain('cancel');
+      expect(names).toContain('ccg');
+      expect(names).toContain('configure-notifications');
       expect(names).toContain('ralph');
-      expect(names).toContain('ralph-init');
-      expect(names).toContain('frontend-ui-ux');
-      expect(names).toContain('git-master');
       expect(names).toContain('ultrawork');
-      expect(names).toContain('analyze');
-      expect(names).toContain('deepsearch');
-      expect(names).toContain('plan');
-      expect(names).toContain('review');
+      expect(names).toContain('omc-plan');
       expect(names).toContain('deepinit');
       expect(names).toContain('release');
-      expect(names).toContain('doctor');
-      expect(names).toContain('help');
+      expect(names).toContain('omc-doctor');
       expect(names).toContain('hud');
-      expect(names).toContain('note');
-      expect(names).toContain('learn-about-omc');
       expect(names).toContain('omc-setup');
+      expect(names).toContain('setup');
+      expect(names).toContain('trace');
+      expect(names).not.toContain('swarm'); // removed in #1131
+      expect(names).not.toContain('psm');
     });
 
     it('should return an array of strings', () => {
@@ -172,6 +236,39 @@ describe('Builtin Skills', () => {
       names.forEach((name) => {
         expect(typeof name).toBe('string');
       });
+    });
+
+    it('should include aliases when explicitly requested', () => {
+      const names = listBuiltinSkillNames({ includeAliases: true });
+
+      // swarm alias removed in #1131, psm still exists
+      expect(names).toHaveLength(29);
+      expect(names).toContain('ai-slop-cleaner');
+      expect(names).toContain('trace');
+      expect(names).not.toContain('swarm');
+      expect(names).toContain('psm');
+    });
+  });
+
+  describe('CC native command denylist (issue #830)', () => {
+    it('should not expose any builtin skill whose name is a bare CC native command', () => {
+      const skills = createBuiltinSkills();
+      const bareNativeNames = [
+        'compact', 'clear', 'help', 'config', 'plan',
+        'review', 'doctor', 'init', 'memory',
+      ];
+      const skillNames = skills.map((s) => s.name.toLowerCase());
+      for (const native of bareNativeNames) {
+        expect(skillNames).not.toContain(native);
+      }
+    });
+
+    it('should not return a skill for "compact" via getBuiltinSkill', () => {
+      expect(getBuiltinSkill('compact')).toBeUndefined();
+    });
+
+    it('should not return a skill for "clear" via getBuiltinSkill', () => {
+      expect(getBuiltinSkill('clear')).toBeUndefined();
     });
   });
 

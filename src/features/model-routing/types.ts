@@ -7,6 +7,7 @@
  */
 
 import type { ModelType } from '../../shared/types.js';
+import { getDefaultTierModels } from '../../config/models.js';
 
 /**
  * Complexity tier for task routing
@@ -14,13 +15,13 @@ import type { ModelType } from '../../shared/types.js';
 export type ComplexityTier = 'LOW' | 'MEDIUM' | 'HIGH';
 
 /**
- * Model tier mapping to actual Claude models
+ * Model tier mapping to actual Claude models.
+ *
+ * Reads from environment variables (OMC_MODEL_HIGH, OMC_MODEL_MEDIUM,
+ * OMC_MODEL_LOW) with built-in fallbacks. User/project config overrides
+ * are applied later by the config loader.
  */
-export const TIER_MODELS: Record<ComplexityTier, string> = {
-  LOW: 'claude-haiku-4-5-20251001',
-  MEDIUM: 'claude-sonnet-4-5-20250929',
-  HIGH: 'claude-opus-4-5-20251101',
-};
+export const TIER_MODELS: Record<ComplexityTier, string> = getDefaultTierModels();
 
 /**
  * Model tier to simple model type mapping
@@ -171,6 +172,14 @@ export interface RoutingConfig {
   enabled: boolean;
   /** Default tier when no rules match */
   defaultTier: ComplexityTier;
+  /**
+   * Force all agents to inherit the parent model, bypassing all routing.
+   * When true, routeTask returns 'inherit' model type so no model parameter
+   * is passed to Task calls.
+   */
+  forceInherit?: boolean;
+  /** Minimum tier to allow (e.g. disable LOW tier by setting minTier to MEDIUM) */
+  minTier?: ComplexityTier;
   /** Whether automatic escalation is enabled */
   escalationEnabled: boolean;
   /** Maximum escalation attempts */

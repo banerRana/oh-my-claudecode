@@ -5,9 +5,8 @@
  * until the QA goal is met or max cycles reached.
  */
 
-import { existsSync, readFileSync, writeFileSync, mkdirSync, unlinkSync } from 'fs';
-import { join } from 'path';
 import { readRalphState } from '../ralph/index.js';
+import { writeModeState, readModeState, clearModeStateFile } from '../../lib/mode-state-io.js';
 
 export type UltraQAGoalType = 'tests' | 'build' | 'lint' | 'typecheck' | 'custom';
 
@@ -28,6 +27,8 @@ export interface UltraQAState {
   started_at: string;
   /** Session ID the loop is bound to */
   session_id?: string;
+  /** Project path for isolation */
+  project_path?: string;
 }
 
 export interface UltraQAOptions {
@@ -51,79 +52,33 @@ export interface UltraQAResult {
 const DEFAULT_MAX_CYCLES = 5;
 const SAME_FAILURE_THRESHOLD = 3;
 
-/**
- * Get the state file path for UltraQA
- */
-function getStateFilePath(directory: string): string {
-  const omcDir = join(directory, '.omc');
-  return join(omcDir, 'state', 'ultraqa-state.json');
-}
-
-/**
- * Ensure the .omc/state directory exists
- */
-function ensureStateDir(directory: string): void {
-  const stateDir = join(directory, '.omc', 'state');
-  if (!existsSync(stateDir)) {
-    mkdirSync(stateDir, { recursive: true });
-  }
-}
 
 /**
  * Read UltraQA state from disk
  */
-export function readUltraQAState(directory: string): UltraQAState | null {
-  const stateFile = getStateFilePath(directory);
-
-  if (!existsSync(stateFile)) {
-    return null;
-  }
-
-  try {
-    const content = readFileSync(stateFile, 'utf-8');
-    return JSON.parse(content);
-  } catch {
-    return null;
-  }
+export function readUltraQAState(directory: string, sessionId?: string): UltraQAState | null {
+  return readModeState<UltraQAState>('ultraqa', directory, sessionId);
 }
 
 /**
  * Write UltraQA state to disk
  */
-export function writeUltraQAState(directory: string, state: UltraQAState): boolean {
-  try {
-    ensureStateDir(directory);
-    const stateFile = getStateFilePath(directory);
-    writeFileSync(stateFile, JSON.stringify(state, null, 2));
-    return true;
-  } catch {
-    return false;
-  }
+export function writeUltraQAState(directory: string, state: UltraQAState, sessionId?: string): boolean {
+  return writeModeState('ultraqa', state as unknown as Record<string, unknown>, directory, sessionId);
 }
 
 /**
  * Clear UltraQA state
  */
-export function clearUltraQAState(directory: string): boolean {
-  const stateFile = getStateFilePath(directory);
-
-  if (!existsSync(stateFile)) {
-    return true;
-  }
-
-  try {
-    unlinkSync(stateFile);
-    return true;
-  } catch {
-    return false;
-  }
+export function clearUltraQAState(directory: string, sessionId?: string): boolean {
+  return clearModeStateFile('ultraqa', directory, sessionId);
 }
 
 /**
  * Check if Ralph Loop is active (mutual exclusion check)
  */
-export function isRalphLoopActive(directory: string): boolean {
-  const ralphState = readRalphState(directory);
+export function isRalphLoopActive(directory: string, sessionId?: string): boolean {
+  const ralphState = readRalphState(directory, sessionId);
   return ralphState !== null && ralphState.active === true;
 }
 
@@ -138,7 +93,7 @@ export function startUltraQA(
   options?: UltraQAOptions
 ): { success: boolean; error?: string } {
   // Mutual exclusion check: cannot start UltraQA if Ralph Loop is active
-  if (isRalphLoopActive(directory)) {
+  if (isRalphLoopActive(directory, sessionId)) {
     return {
       success: false,
       error: 'Cannot start UltraQA while Ralph Loop is active. Cancel Ralph Loop first with /oh-my-claudecode:cancel.'
@@ -153,10 +108,11 @@ export function startUltraQA(
     max_cycles: options?.maxCycles ?? DEFAULT_MAX_CYCLES,
     failures: [],
     started_at: new Date().toISOString(),
-    session_id: sessionId
+    session_id: sessionId,
+    project_path: directory
   };
 
-  const written = writeUltraQAState(directory, state);
+  const written = writeUltraQAState(directory, state, sessionId);
   return { success: written };
 }
 
@@ -165,9 +121,10 @@ export function startUltraQA(
  */
 export function recordFailure(
   directory: string,
-  failureDescription: string
+  failureDescription: string,
+  sessionId?: string
 ): { state: UltraQAState | null; shouldExit: boolean; reason?: string } {
-  const state = readUltraQAState(directory);
+  const state = readUltraQAState(directory, sessionId);
 
   if (!state || !state.active) {
     return { state: null, shouldExit: true, reason: 'not_active' };
@@ -201,15 +158,15 @@ export function recordFailure(
     };
   }
 
-  writeUltraQAState(directory, state);
+  writeUltraQAState(directory, state, sessionId);
   return { state, shouldExit: false };
 }
 
 /**
  * Mark UltraQA as successful
  */
-export function completeUltraQA(directory: string): UltraQAResult | null {
-  const state = readUltraQAState(directory);
+export function completeUltraQA(directory: string, sessionId?: string): UltraQAResult | null {
+  const state = readUltraQAState(directory, sessionId);
 
   if (!state) {
     return null;
@@ -221,7 +178,7 @@ export function completeUltraQA(directory: string): UltraQAResult | null {
     reason: 'goal_met'
   };
 
-  clearUltraQAState(directory);
+  clearUltraQAState(directory, sessionId);
   return result;
 }
 
@@ -231,9 +188,10 @@ export function completeUltraQA(directory: string): UltraQAResult | null {
 export function stopUltraQA(
   directory: string,
   reason: 'max_cycles' | 'same_failure' | 'env_error',
-  diagnosis: string
+  diagnosis: string,
+  sessionId?: string
 ): UltraQAResult | null {
-  const state = readUltraQAState(directory);
+  const state = readUltraQAState(directory, sessionId);
 
   if (!state) {
     return null;
@@ -246,15 +204,15 @@ export function stopUltraQA(
     diagnosis
   };
 
-  clearUltraQAState(directory);
+  clearUltraQAState(directory, sessionId);
   return result;
 }
 
 /**
  * Cancel UltraQA
  */
-export function cancelUltraQA(directory: string): boolean {
-  return clearUltraQAState(directory);
+export function cancelUltraQA(directory: string, sessionId?: string): boolean {
+  return clearUltraQAState(directory, sessionId);
 }
 
 /**
@@ -277,13 +235,13 @@ function normalizeFailure(failure: string): string {
 export function getGoalCommand(goalType: UltraQAGoalType): string {
   switch (goalType) {
     case 'tests':
-      return 'npm test';
+      return '# Run the project test command (e.g., npm test, pytest, go test ./..., cargo test)';
     case 'build':
-      return 'npm run build';
+      return '# Run the project build command (e.g., npm run build, go build ./..., cargo build)';
     case 'lint':
-      return 'npm run lint';
+      return '# Run the project lint command (e.g., npm run lint, ruff check ., golangci-lint run)';
     case 'typecheck':
-      return 'npm run typecheck || tsc --noEmit';
+      return '# Run the project type check command (e.g., tsc --noEmit, mypy ., cargo check)';
     case 'custom':
       return '# Custom command based on goal pattern';
   }

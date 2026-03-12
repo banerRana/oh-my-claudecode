@@ -19,49 +19,41 @@ export {
   buildKeyTriggersSection,
   validateAgentConfig,
   deepMerge,
-  loadAgentPrompt
+  loadAgentPrompt,
+  formatOpenQuestions,
+  OPEN_QUESTIONS_PATH
 } from './utils.js';
 
-// Individual agent exports (rebranded intuitive names)
+// Individual agent exports
 export { architectAgent, ARCHITECT_PROMPT_METADATA } from './architect.js';
 export { exploreAgent, EXPLORE_PROMPT_METADATA } from './explore.js';
-export { researcherAgent, RESEARCHER_PROMPT_METADATA } from './researcher.js';
-export { executorAgent, SISYPHUS_JUNIOR_PROMPT_METADATA } from './executor.js';
+export { executorAgent, EXECUTOR_PROMPT_METADATA } from './executor.js';
 export { designerAgent, FRONTEND_ENGINEER_PROMPT_METADATA } from './designer.js';
 export { writerAgent, DOCUMENT_WRITER_PROMPT_METADATA } from './writer.js';
-export { visionAgent, MULTIMODAL_LOOKER_PROMPT_METADATA } from './vision.js';
 export { criticAgent, CRITIC_PROMPT_METADATA } from './critic.js';
 export { analystAgent, ANALYST_PROMPT_METADATA } from './analyst.js';
 export { plannerAgent, PLANNER_PROMPT_METADATA } from './planner.js';
 export { qaTesterAgent, QA_TESTER_PROMPT_METADATA } from './qa-tester.js';
 export { scientistAgent, SCIENTIST_PROMPT_METADATA } from './scientist.js';
-
-// Tiered agent variants (prompts loaded dynamically from /agents/*.md)
+export { tracerAgent, TRACER_PROMPT_METADATA } from './tracer.js';
+export { documentSpecialistAgent, DOCUMENT_SPECIALIST_PROMPT_METADATA } from './document-specialist.js';
+// Reformed agents (Build/Analysis Lane)
 export {
-  architectMediumAgent,
-  architectLowAgent,
-  executorHighAgent,
-  executorLowAgent,
-  researcherLowAgent,
-  exploreMediumAgent,
-  exploreHighAgent,
-  designerLowAgent,
-  designerHighAgent,
-  qaTesterHighAgent,
-  scientistLowAgent,
-  scientistHighAgent
+  debuggerAgent,
+  verifierAgent
 } from './definitions.js';
 
-// Specialized agents (Security, Build, TDD, Code Review)
+// Reformed agents (Domain Specialists)
+export {
+  testEngineerAgent
+} from './definitions.js';
+
+// Specialized agents (Security, Code Review, Git, Code Simplifier)
 export {
   securityReviewerAgent,
-  securityReviewerLowAgent,
-  buildFixerAgent,
-  buildFixerLowAgent,
-  tddGuideAgent,
-  tddGuideLowAgent,
   codeReviewerAgent,
-  codeReviewerLowAgent
+  gitMasterAgent,
+  codeSimplifierAgent
 } from './definitions.js';
 
 // Core exports (getAgentDefinitions and omcSystemPrompt)
@@ -69,9 +61,3 @@ export {
   getAgentDefinitions,
   omcSystemPrompt
 } from './definitions.js';
-
-// Deprecated exports (for backward compatibility)
-export {
-  coordinatorAgent,
-  ORCHESTRATOR_SISYPHUS_PROMPT_METADATA
-} from './coordinator-deprecated.js';

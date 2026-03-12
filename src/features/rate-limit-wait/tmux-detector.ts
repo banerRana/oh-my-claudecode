@@ -38,6 +38,9 @@ const RATE_LIMIT_PATTERNS = [
   /please wait/i,
   /try again later/i,
   /limit reached/i,
+  /hit your limit/i,
+  /hit .+ limit/i,
+  /resets? .+ at/i,
   /5[- ]?hour/i,
   /weekly/i,
 ];
@@ -54,24 +57,28 @@ const CLAUDE_CODE_PATTERNS = [
 
 /** Patterns that indicate the pane is waiting for user input */
 const WAITING_PATTERNS = [
-  /\[\d+\]/,           // Menu selection prompt like [1], [2], [3]
-  /continue\?/i,        // Continue prompt
+  /\[\d+\]/,              // Menu selection prompt like [1], [2], [3]
+  /^\s*❯?\s*\d+\.\s/m,     // Menu selection prompt like "❯ 1. ..." or "  2. ..."
+  /continue\?/i,           // Continue prompt
   /press enter/i,
   /waiting for/i,
   /select an option/i,
   /choice:/i,
+  /enter to confirm/i,
 ];
 
 /**
- * Check if tmux is installed and available
+ * Check if tmux is installed and available.
+ * On Windows, a tmux-compatible binary such as psmux may provide tmux.
  */
 export function isTmuxAvailable(): boolean {
   try {
-    const result = spawnSync('which', ['tmux'], {
+    const result = spawnSync('tmux', ['-V'], {
       encoding: 'utf-8',
-      timeout: 2000,
+      timeout: 3000,
+      stdio: 'pipe',
     });
-    return result.status === 0 && result.stdout.trim().length > 0;
+    return result.status === 0;
   } catch {
     return false;
   }
@@ -95,7 +102,7 @@ export function listTmuxPanes(): TmuxPane[] {
   try {
     // Format: session_name:window_index.pane_index pane_id pane_active window_name pane_title
     const format = '#{session_name}:#{window_index}.#{pane_index} #{pane_id} #{pane_active} #{window_name} #{pane_title}';
-    const result = execSync(`tmux list-panes -a -F '${format}'`, {
+    const result = execSync(`tmux list-panes -a -F "${format}"`, {
       encoding: 'utf-8',
       timeout: 5000,
     });
@@ -152,7 +159,7 @@ export function capturePaneContent(paneId: string, lines = 15): string {
 
   try {
     // Capture the last N lines from the pane
-    const result = execSync(`tmux capture-pane -t '${paneId}' -p -S -${safeLines}`, {
+    const result = execSync(`tmux capture-pane -t "${paneId}" -p -S -${safeLines}`, {
       encoding: 'utf-8',
       timeout: 5000,
     });
@@ -298,10 +305,16 @@ export function sendToPane(paneId: string, text: string, pressEnter = true): boo
 
   try {
     const sanitizedText = sanitizeForTmux(text);
-    const enterSuffix = pressEnter ? ' Enter' : '';
-    execSync(`tmux send-keys -t '${paneId}' '${sanitizedText}'${enterSuffix}`, {
+    // Send text with -l flag (literal) to avoid key interpretation issues in TUI apps
+    execSync(`tmux send-keys -t '${paneId}' -l '${sanitizedText}'`, {
       timeout: 2000,
     });
+    // Send Enter as a separate command so it is interpreted as a key press
+    if (pressEnter) {
+      execSync(`tmux send-keys -t '${paneId}' Enter`, {
+        timeout: 2000,
+      });
+    }
     return true;
   } catch (error) {
     console.error(`[TmuxDetector] Error sending to pane ${paneId}:`, error);

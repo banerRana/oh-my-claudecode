@@ -46,7 +46,9 @@ export {
   hasPendingUpdateRestart,
   clearPendingUpdateRestart,
   getPendingUpdateVersion,
-  initSilentAutoUpdate
+  initSilentAutoUpdate,
+  // Auto-upgrade prompt
+  isAutoUpgradePromptEnabled
 } from './auto-update.js';
 
 // Boulder State - session/plan tracking
@@ -301,3 +303,14 @@ export {
   type FileOwnership,
   type DecompositionStrategy
 } from './task-decomposer/index.js';
+
+
+// Session History Search - local transcript/session artifact search
+export {
+  searchSessionHistory,
+  parseSinceSpec,
+  type SessionHistoryMatch,
+  type SessionHistorySearchOptions,
+  type SessionHistorySearchReport,
+} from './session-history-search/index.js';
+

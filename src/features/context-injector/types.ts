@@ -20,6 +20,8 @@ export type ContextSourceType =
   | 'boulder-state'
   | 'session-context'
   | 'learner'
+  | 'beads'
+  | 'project-memory'
   | 'custom';
 
 /**

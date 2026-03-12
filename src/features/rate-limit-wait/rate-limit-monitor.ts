@@ -18,16 +18,19 @@ const RATE_LIMIT_THRESHOLD = 100;
  */
 export async function checkRateLimitStatus(): Promise<RateLimitStatus | null> {
   try {
-    const usage = await getUsage();
+    const result = await getUsage();
 
-    if (!usage) {
+    if (!result.rateLimits) {
       // No OAuth credentials or API unavailable
       return null;
     }
 
-    const fiveHourLimited = usage.fiveHourPercent >= RATE_LIMIT_THRESHOLD;
-    const weeklyLimited = usage.weeklyPercent >= RATE_LIMIT_THRESHOLD;
-    const isLimited = fiveHourLimited || weeklyLimited;
+    const usage = result.rateLimits;
+    const fiveHourLimited = (usage.fiveHourPercent ?? 0) >= RATE_LIMIT_THRESHOLD;
+    const weeklyLimited = (usage.weeklyPercent ?? 0) >= RATE_LIMIT_THRESHOLD;
+    const monthlyLimited = (usage.monthlyPercent ?? 0) >= RATE_LIMIT_THRESHOLD;
+    const isLimited = fiveHourLimited || weeklyLimited || monthlyLimited;
+    const usingStaleData = result.error === 'rate_limited' && !!result.rateLimits;
 
     // Determine next reset time
     let nextResetAt: Date | null = null;
@@ -43,6 +46,9 @@ export async function checkRateLimitStatus(): Promise<RateLimitStatus | null> {
       if (weeklyLimited && usage.weeklyResetsAt) {
         resets.push(usage.weeklyResetsAt);
       }
+      if (monthlyLimited && usage.monthlyResetsAt) {
+        resets.push(usage.monthlyResetsAt);
+      }
 
       if (resets.length > 0) {
         // Find earliest reset
@@ -56,11 +62,18 @@ export async function checkRateLimitStatus(): Promise<RateLimitStatus | null> {
     return {
       fiveHourLimited,
       weeklyLimited,
+      monthlyLimited,
       isLimited,
       fiveHourResetsAt: usage.fiveHourResetsAt ?? null,
       weeklyResetsAt: usage.weeklyResetsAt ?? null,
+      monthlyResetsAt: usage.monthlyResetsAt ?? null,
       nextResetAt,
       timeUntilResetMs,
+      fiveHourPercent: usage.fiveHourPercent,
+      weeklyPercent: usage.weeklyPercent,
+      monthlyPercent: usage.monthlyPercent,
+      apiErrorReason: result.error,
+      usingStaleData,
       lastCheckedAt: new Date(),
     };
   } catch (error) {
@@ -94,6 +107,25 @@ export function formatTimeUntilReset(ms: number): string {
  * Get a human-readable rate limit status message
  */
 export function formatRateLimitStatus(status: RateLimitStatus): string {
+  if (status.apiErrorReason === 'rate_limited' && !status.isLimited) {
+    const cachedUsageParts: string[] = [];
+
+    if (typeof status.fiveHourPercent === 'number') {
+      cachedUsageParts.push(`5-hour ${status.fiveHourPercent}%`);
+    }
+    if (typeof status.weeklyPercent === 'number') {
+      cachedUsageParts.push(`weekly ${status.weeklyPercent}%`);
+    }
+    if (typeof status.monthlyPercent === 'number') {
+      cachedUsageParts.push(`monthly ${status.monthlyPercent}%`);
+    }
+
+    if (cachedUsageParts.length > 0) {
+      return `Usage API rate limited; showing stale cached usage (${cachedUsageParts.join(', ')})`;
+    }
+    return 'Usage API rate limited; current limit status unavailable';
+  }
+
   if (!status.isLimited) {
     return 'Not rate limited';
   }
@@ -106,6 +138,9 @@ export function formatRateLimitStatus(status: RateLimitStatus): string {
   if (status.weeklyLimited) {
     parts.push('Weekly limit reached');
   }
+  if (status.monthlyLimited) {
+    parts.push('Monthly limit reached');
+  }
 
   let message = parts.join(' and ');
 
@@ -113,5 +148,24 @@ export function formatRateLimitStatus(status: RateLimitStatus): string {
     message += ` (resets in ${formatTimeUntilReset(status.timeUntilResetMs)})`;
   }
 
+  if (status.apiErrorReason === 'rate_limited') {
+    message += ' [usage API 429; cached data]';
+  }
+
   return message;
+}
+
+/**
+ * Whether the underlying usage API is currently degraded by 429/stale-cache behavior.
+ */
+export function isRateLimitStatusDegraded(status: RateLimitStatus | null): boolean {
+  return status?.apiErrorReason === 'rate_limited';
+}
+
+/**
+ * Whether the daemon should keep monitoring blocked panes.
+ * This includes both confirmed limit hits and degraded 429/stale-cache states.
+ */
+export function shouldMonitorBlockedPanes(status: RateLimitStatus | null): boolean {
+  return !!status && (status.isLimited || isRateLimitStatusDegraded(status));
 }

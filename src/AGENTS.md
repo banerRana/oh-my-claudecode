@@ -1,5 +1,5 @@
 <!-- Parent: ../AGENTS.md -->
-<!-- Generated: 2026-01-28 | Updated: 2026-01-31 -->
+<!-- Generated: 2026-01-28 | Updated: 2026-03-02 -->
 
 # src
 
@@ -21,7 +21,7 @@ This directory contains all TypeScript source code organized into modules:
 
 | File | Description |
 |------|-------------|
-| `index.ts` | Main entry point - exports `createSisyphusSession()` |
+| `index.ts` | Main entry point - exports `createOmcSession()` |
 | `shared/types.ts` | Shared TypeScript types used across modules |
 
 ## Subdirectories
@@ -34,11 +34,10 @@ This directory contains all TypeScript source code organized into modules:
 | `features/` | Core features like model routing, state (see `features/AGENTS.md`) |
 | `config/` | Configuration loading (`loader.ts`) |
 | `commands/` | Command expansion utilities |
-| `mcp/` | MCP server configuration |
-| `cli/` | CLI entry points (`index.ts`, `analytics.ts`) |
+| `mcp/` | MCP server configuration and team runtime convergence helpers |
+| `cli/` | CLI entry points and command surfaces |
 | `hud/` | Heads-up display components |
 | `installer/` | Installation system |
-| `analytics/` | Usage analytics collection |
 | `__tests__/` | Test files |
 
 ## For AI Agents
@@ -53,7 +52,7 @@ This directory contains all TypeScript source code organized into modules:
 2. **Entry Point Pattern**:
    ```typescript
    // Main export in index.ts
-   export { createSisyphusSession } from './session';
+   export { createOmcSession } from './session';
    export { lspTools, astTools, allCustomTools } from './tools';
    export { getAgentDefinitions, omcSystemPrompt } from './agents/definitions';
    ```
@@ -134,6 +133,11 @@ This directory contains all TypeScript source code organized into modules:
 ### External
 
 Key packages by module: `zod` (tools, features), `@ast-grep/napi` (tools/ast), `vscode-languageserver-protocol` (tools/lsp), `better-sqlite3` (hooks/swarm), `chalk` (cli, hud). See root AGENTS.md for full dependency list.
+
+### MCP Runtime Notes
+
+- Team MCP runtime status/wait behavior is implemented in `mcp/team-server.ts`.
+- Shared team-job convergence helpers (artifact-first status convergence, scoped team-state cleanup) live in `mcp/team-job-convergence.ts`.
 
 ## Module Dependency Graph
 

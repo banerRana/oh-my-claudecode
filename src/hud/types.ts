@@ -5,9 +5,12 @@
  */
 
 import type { AutopilotStateForHud } from './elements/autopilot.js';
+import type { ApiKeySource } from './elements/api-key-source.js';
+import type { MissionBoardConfig, MissionBoardState } from './mission-board.js';
+import { DEFAULT_MISSION_BOARD_CONFIG } from './mission-board.js';
 
 // Re-export for convenience
-export type { AutopilotStateForHud };
+export type { AutopilotStateForHud, ApiKeySource };
 
 // ============================================================================
 // HUD State
@@ -27,6 +30,12 @@ export interface BackgroundTask {
 export interface OmcHudState {
   timestamp: string;
   backgroundTasks: BackgroundTask[];
+  /** Persisted session start time to survive tail-parsing resets */
+  sessionStartTimestamp?: string;
+  /** Session ID that owns the persisted sessionStartTimestamp */
+  sessionId?: string;
+  /** Timestamp of last user prompt submission (ISO 8601) */
+  lastPromptTimestamp?: string;
 }
 
 // ============================================================================
@@ -99,16 +108,12 @@ export interface SessionHealth {
   durationMinutes: number;
   messageCount: number;
   health: 'healthy' | 'warning' | 'critical';
+}
 
-  // Analytics fields
-  sessionCost?: number;
-  totalTokens?: number;
-  cacheHitRate?: number;
-  topAgents?: Array<{ agent: string; cost: number }>;
-
-  // NEW: Additional analytics fields
-  costPerHour?: number;
-  isEstimated?: boolean;  // True when costs are estimated (always for now)
+export interface LastRequestTokenUsage {
+  inputTokens: number;
+  outputTokens: number;
+  reasoningTokens?: number;
 }
 
 export interface TranscriptData {
@@ -118,6 +123,11 @@ export interface TranscriptData {
   lastActivatedSkill?: SkillInvocation;
   pendingPermission?: PendingPermission;
   thinkingState?: ThinkingState;
+  lastRequestTokenUsage?: LastRequestTokenUsage;
+  sessionTotalTokens?: number;
+  toolCallCount: number;
+  agentCallCount: number;
+  skillCallCount: number;
 }
 
 // ============================================================================
@@ -151,8 +161,8 @@ export interface PrdStateForHud {
 export interface RateLimits {
   /** 5-hour rolling window usage percentage (0-100) - all models combined */
   fiveHourPercent: number;
-  /** Weekly usage percentage (0-100) - all models combined */
-  weeklyPercent: number;
+  /** Weekly usage percentage (0-100) - all models combined (undefined if not applicable) */
+  weeklyPercent?: number;
   /** When the 5-hour limit resets (null if unavailable) */
   fiveHourResetsAt?: Date | null;
   /** When the weekly limit resets (null if unavailable) */
@@ -162,6 +172,106 @@ export interface RateLimits {
   sonnetWeeklyPercent?: number;
   /** Sonnet weekly reset time */
   sonnetWeeklyResetsAt?: Date | null;
+
+  /** Opus-specific weekly usage percentage (0-100), if available from API */
+  opusWeeklyPercent?: number;
+  /** Opus weekly reset time */
+  opusWeeklyResetsAt?: Date | null;
+
+  /** Monthly usage percentage (0-100), if available from API */
+  monthlyPercent?: number;
+  /** When the monthly limit resets (null if unavailable) */
+  monthlyResetsAt?: Date | null;
+}
+
+/**
+ * Categorized error reasons for API usage fetch failures.
+ * - 'network': Network error or timeout
+ * - 'auth': Authentication failure (token expired, refresh failed)
+ * - 'no_credentials': No OAuth credentials available (expected for API key users)
+ */
+export type UsageErrorReason = 'network' | 'timeout' | 'http' | 'auth' | 'no_credentials' | 'rate_limited';
+
+/**
+ * Result of fetching usage data from the API.
+ * - rateLimits: The rate limit data (null if no data available)
+ * - error: Set when the API call fails (undefined on success or no credentials)
+ */
+export interface UsageResult {
+  rateLimits: RateLimits | null;
+  /** Error reason when API call fails (undefined on success or no credentials) */
+  error?: UsageErrorReason;
+  /** True when serving cached data that may be outdated (429 or lock contention) */
+  stale?: boolean;
+}
+
+// ============================================================================
+// Custom Rate Limit Provider
+// ============================================================================
+
+/**
+ * Custom rate limit provider configuration.
+ * Set omcHud.rateLimitsProvider.type = 'custom' to enable.
+ */
+export interface RateLimitsProviderConfig {
+  type: 'custom';
+  /** Shell command string or argv array to execute */
+  command: string | string[];
+  /** Execution timeout in milliseconds (default: 800) */
+  timeoutMs?: number;
+  /** Optional bucket IDs to display; shows all buckets when omitted */
+  periods?: string[];
+  /** Percent usage threshold above which resetsAt is shown (default: 85) */
+  resetsAtDisplayThresholdPercent?: number;
+}
+
+/** Usage expressed as a 0-100 percent value */
+export interface BucketUsagePercent {
+  type: 'percent';
+  value: number;
+}
+
+/** Usage expressed as consumed credits vs. limit */
+export interface BucketUsageCredit {
+  type: 'credit';
+  used: number;
+  limit: number;
+}
+
+/** Usage expressed as a pre-formatted string (resetsAt always hidden) */
+export interface BucketUsageString {
+  type: 'string';
+  value: string;
+}
+
+export type CustomBucketUsage = BucketUsagePercent | BucketUsageCredit | BucketUsageString;
+
+/** A single rate limit bucket returned by the custom provider command */
+export interface CustomBucket {
+  id: string;
+  label: string;
+  usage: CustomBucketUsage;
+  /** ISO 8601 reset time; only shown when usage crosses resetsAtDisplayThresholdPercent */
+  resetsAt?: string;
+}
+
+/** The JSON object a custom provider command must print to stdout */
+export interface CustomProviderOutput {
+  version: 1;
+  generatedAt: string;
+  buckets: CustomBucket[];
+}
+
+/**
+ * Result of executing (or loading from cache) the custom rate limit provider.
+ * Passed directly to the HUD render context.
+ */
+export interface CustomProviderResult {
+  buckets: CustomBucket[];
+  /** True when using the last-known-good cached value after a command failure */
+  stale: boolean;
+  /** Error message when command failed and no cache is available */
+  error?: string;
 }
 
 export interface HudRenderContext {
@@ -195,11 +305,20 @@ export interface HudRenderContext {
   /** Working directory */
   cwd: string;
 
+  /** Mission-board snapshot (opt-in) */
+  missionBoard?: MissionBoardState | null;
+
   /** Last activated skill from transcript */
   lastSkill: SkillInvocation | null;
 
-  /** Rate limits (5h and weekly) */
-  rateLimits: RateLimits | null;
+  /** Rate limits result from built-in Anthropic/z.ai providers (includes error state) */
+  rateLimitsResult: UsageResult | null;
+
+  /** Error reason when built-in rate limit API call fails (undefined on success or no credentials) */
+  rateLimitsError?: UsageErrorReason;
+
+  /** Custom rate limit buckets from rateLimitsProvider command (null when not configured) */
+  customBuckets: CustomProviderResult | null;
 
   /** Pending permission state (heuristic-based) */
   pendingPermission: PendingPermission | null;
@@ -209,13 +328,43 @@ export interface HudRenderContext {
 
   /** Session health metrics */
   sessionHealth: SessionHealth | null;
+
+  /** Last-request token usage parsed from transcript message.usage */
+  lastRequestTokenUsage?: LastRequestTokenUsage | null;
+
+  /** Session token total (input + output) when transcript parsing is reliable enough to calculate it */
+  sessionTotalTokens?: number | null;
+
+  /** Installed OMC version (e.g. "4.1.10") */
+  omcVersion: string | null;
+
+  /** Latest available version from npm registry (null if up to date or unknown) */
+  updateAvailable: string | null;
+
+  /** Total tool_use blocks seen in transcript */
+  toolCallCount: number;
+
+  /** Total Task/proxy_Task calls seen in transcript */
+  agentCallCount: number;
+
+  /** Total Skill/proxy_Skill calls seen in transcript */
+  skillCallCount: number;
+
+  /** Last prompt submission time (from HUD state) */
+  promptTime: Date | null;
+
+  /** API key source: 'project', 'global', or 'env' */
+  apiKeySource: ApiKeySource | null;
+
+  /** Active profile name (derived from CLAUDE_CONFIG_DIR), null if default */
+  profileName: string | null;
 }
 
 // ============================================================================
 // Configuration
 // ============================================================================
 
-export type HudPreset = 'minimal' | 'focused' | 'full' | 'opencode' | 'dense' | 'analytics';
+export type HudPreset = 'minimal' | 'focused' | 'full' | 'opencode' | 'dense';
 
 /**
  * Agent display format options:
@@ -246,9 +395,22 @@ export type ThinkingFormat = 'bubble' | 'brain' | 'face' | 'text';
  */
 export type CwdFormat = 'relative' | 'absolute' | 'folder';
 
+/**
+ * Model name format options:
+ * - short: 'Opus', 'Sonnet', 'Haiku'
+ * - versioned: 'Opus 4.6', 'Sonnet 4.5', 'Haiku 4.5'
+ * - full: raw model ID like 'claude-opus-4-6-20260205'
+ */
+export type ModelFormat = 'short' | 'versioned' | 'full';
+
 export interface HudElementConfig {
   cwd: boolean;              // Show working directory
   cwdFormat: CwdFormat;      // Path display format
+  gitRepo: boolean;          // Show git repository name
+  gitBranch: boolean;        // Show git branch
+  gitInfoPosition: 'above' | 'below';  // Position of git info relative to main HUD line
+  model: boolean;            // Show current model name
+  modelFormat: ModelFormat;   // Model name verbosity level
   omcLabel: boolean;
   rateLimits: boolean;  // Show 5h and weekly rate limits
   ralph: boolean;
@@ -265,11 +427,18 @@ export interface HudElementConfig {
   permissionStatus: boolean;  // Show pending permission indicator
   thinking: boolean;          // Show extended thinking indicator
   thinkingFormat: ThinkingFormat;  // Thinking indicator format
+  apiKeySource: boolean;       // Show API key source (project/global/env)
+  profile: boolean;            // Show active profile name (from CLAUDE_CONFIG_DIR)
+  missionBoard?: boolean;      // Show opt-in mission board above existing HUD detail lines
+  promptTime: boolean;        // Show last prompt submission time (HH:MM:SS)
   sessionHealth: boolean;     // Show session health/duration
+  showSessionDuration?: boolean;  // Show session:19m duration display (default: true if sessionHealth is true)
+  showHealthIndicator?: boolean;  // Show 🟢/🟡/🔴 health indicator (default: true if sessionHealth is true)
+  showTokens?: boolean;           // Show last-request token usage when enabled (tok:i1.2k/o340)
   useBars: boolean;           // Show visual progress bars instead of/alongside percentages
-  showCache: boolean;         // Show cache hit rate in analytics displays
-  showCost: boolean;          // Show cost/dollar amounts in analytics displays
+  showCallCounts?: boolean;   // Show tool/agent/skill call counts on the right of the status line (default: true)
   maxOutputLines: number;     // Max total output lines to prevent input field shrinkage
+  safeMode: boolean;          // Strip ANSI codes and use ASCII-only output to prevent terminal rendering corruption (Issue #346)
 }
 
 export interface HudThresholds {
@@ -281,6 +450,14 @@ export interface HudThresholds {
   contextCritical: number;
   /** Ralph iteration that triggers warning color (default: 7) */
   ralphWarning: number;
+  /** Session cost ($) that triggers budget warning (default: 2.0) */
+}
+
+export interface ContextLimitWarningConfig {
+  /** Context percentage threshold that triggers the warning banner (default: 80) */
+  threshold: number;
+  /** Automatically queue /compact when threshold is exceeded (default: false) */
+  autoCompact: boolean;
 }
 
 export interface HudConfig {
@@ -288,13 +465,31 @@ export interface HudConfig {
   elements: HudElementConfig;
   thresholds: HudThresholds;
   staleTaskThresholdMinutes: number; // Default 30
+  contextLimitWarning: ContextLimitWarningConfig;
+  /** Mission-board collection/rendering settings. */
+  missionBoard?: MissionBoardConfig;
+  /** Built-in usage API polling interval / success-cache TTL in milliseconds. */
+  usageApiPollIntervalMs: number;
+  /** Optional custom rate limit provider; omit to use built-in Anthropic/z.ai */
+  rateLimitsProvider?: RateLimitsProviderConfig;
+  /** Optional maximum width (columns) for statusline output. */
+  maxWidth?: number;
+  /** Controls maxWidth behavior: truncate with ellipsis (default) or wrap at " | " HUD element boundaries. */
+  wrapMode?: 'truncate' | 'wrap';
 }
+
+export const DEFAULT_HUD_USAGE_POLL_INTERVAL_MS = 90 * 1000;
 
 export const DEFAULT_HUD_CONFIG: HudConfig = {
   preset: 'focused',
   elements: {
     cwd: false,               // Disabled by default for backward compatibility
     cwdFormat: 'relative',
+    gitRepo: false,           // Disabled by default for backward compatibility
+    gitBranch: false,         // Disabled by default for backward compatibility
+    gitInfoPosition: 'above',  // Git info above main HUD line (backward compatible)
+    model: false,             // Disabled by default for backward compatibility
+    modelFormat: 'short',     // Short names by default for backward compatibility
     omcLabel: true,
     rateLimits: true,  // Show rate limits by default
     ralph: true,
@@ -311,11 +506,16 @@ export const DEFAULT_HUD_CONFIG: HudConfig = {
     permissionStatus: false,  // Disabled: heuristic-based, causes false positives
     thinking: true,
     thinkingFormat: 'text',   // Text format for backward compatibility
+    apiKeySource: false, // Disabled by default
+    profile: true,  // Show profile name when CLAUDE_CONFIG_DIR is set
+    missionBoard: false,  // Opt-in mission board for whole-run progress tracking
+    promptTime: true,  // Show last prompt time by default
     sessionHealth: true,
+    showTokens: false,
     useBars: false,  // Disabled by default for backwards compatibility
-    showCache: true,
-    showCost: true,
+    showCallCounts: true,  // Show tool/agent/skill call counts by default (Issue #710)
     maxOutputLines: 4,
+    safeMode: true,  // Enabled by default to prevent terminal rendering corruption (Issue #346)
   },
   thresholds: {
     contextWarning: 70,
@@ -324,12 +524,24 @@ export const DEFAULT_HUD_CONFIG: HudConfig = {
     ralphWarning: 7,
   },
   staleTaskThresholdMinutes: 30,
+  contextLimitWarning: {
+    threshold: 80,
+    autoCompact: false,
+  },
+  missionBoard: DEFAULT_MISSION_BOARD_CONFIG,
+  usageApiPollIntervalMs: DEFAULT_HUD_USAGE_POLL_INTERVAL_MS,
+  wrapMode: 'truncate',
 };
 
 export const PRESET_CONFIGS: Record<HudPreset, Partial<HudElementConfig>> = {
   minimal: {
     cwd: false,
     cwdFormat: 'folder',
+    gitRepo: false,
+    gitBranch: false,
+    gitInfoPosition: 'above',
+    model: false,
+    modelFormat: 'short',
     omcLabel: true,
     rateLimits: true,
     ralph: true,
@@ -346,40 +558,25 @@ export const PRESET_CONFIGS: Record<HudPreset, Partial<HudElementConfig>> = {
     permissionStatus: false,
     thinking: false,
     thinkingFormat: 'text',
+    apiKeySource: false,
+    profile: true,
+    missionBoard: false,
+    promptTime: false,
     sessionHealth: false,
+    showTokens: false,
     useBars: false,
-    showCache: false,
-    showCost: false,
+    showCallCounts: false,
     maxOutputLines: 2,
-  },
-  analytics: {
-    cwd: false,
-    cwdFormat: 'folder',
-    omcLabel: false,
-    rateLimits: false,
-    ralph: false,
-    autopilot: false,
-    prdStory: false,
-    activeSkills: false,
-    lastSkill: false,
-    contextBar: false,
-    agents: true,
-    agentsFormat: 'codes',
-    agentsMaxLines: 0,
-    backgroundTasks: false,
-    todos: true,
-    permissionStatus: false,
-    thinking: false,
-    thinkingFormat: 'text',
-    sessionHealth: false,
-    useBars: false,
-    showCache: true,
-    showCost: true,
-    maxOutputLines: 4,
+    safeMode: true,
   },
   focused: {
     cwd: false,
     cwdFormat: 'relative',
+    gitRepo: false,
+    gitBranch: true,
+    gitInfoPosition: 'above',
+    model: false,
+    modelFormat: 'short',
     omcLabel: true,
     rateLimits: true,
     ralph: true,
@@ -396,15 +593,25 @@ export const PRESET_CONFIGS: Record<HudPreset, Partial<HudElementConfig>> = {
     permissionStatus: false,
     thinking: true,
     thinkingFormat: 'text',
+    apiKeySource: false,
+    profile: true,
+    missionBoard: false,
+    promptTime: true,
     sessionHealth: true,
+    showTokens: false,
     useBars: true,
-    showCache: true,
-    showCost: true,
+    showCallCounts: true,
     maxOutputLines: 4,
+    safeMode: true,
   },
   full: {
     cwd: false,
     cwdFormat: 'relative',
+    gitRepo: true,
+    gitBranch: true,
+    gitInfoPosition: 'above',
+    model: false,
+    modelFormat: 'short',
     omcLabel: true,
     rateLimits: true,
     ralph: true,
@@ -421,15 +628,25 @@ export const PRESET_CONFIGS: Record<HudPreset, Partial<HudElementConfig>> = {
     permissionStatus: false,
     thinking: true,
     thinkingFormat: 'text',
+    apiKeySource: true,
+    profile: true,
+    missionBoard: false,
+    promptTime: true,
     sessionHealth: true,
+    showTokens: false,
     useBars: true,
-    showCache: true,
-    showCost: true,
+    showCallCounts: true,
     maxOutputLines: 12,
+    safeMode: true,
   },
   opencode: {
     cwd: false,
     cwdFormat: 'relative',
+    gitRepo: false,
+    gitBranch: true,
+    gitInfoPosition: 'above',
+    model: false,
+    modelFormat: 'short',
     omcLabel: true,
     rateLimits: false,
     ralph: true,
@@ -446,15 +663,25 @@ export const PRESET_CONFIGS: Record<HudPreset, Partial<HudElementConfig>> = {
     permissionStatus: false,
     thinking: true,
     thinkingFormat: 'text',
+    apiKeySource: false,
+    profile: true,
+    missionBoard: false,
+    promptTime: true,
     sessionHealth: true,
+    showTokens: false,
     useBars: false,
-    showCache: true,
-    showCost: true,
+    showCallCounts: true,
     maxOutputLines: 4,
+    safeMode: true,
   },
   dense: {
     cwd: false,
     cwdFormat: 'relative',
+    gitRepo: true,
+    gitBranch: true,
+    gitInfoPosition: 'above',
+    model: false,
+    modelFormat: 'short',
     omcLabel: true,
     rateLimits: true,
     ralph: true,
@@ -471,10 +698,15 @@ export const PRESET_CONFIGS: Record<HudPreset, Partial<HudElementConfig>> = {
     permissionStatus: false,
     thinking: true,
     thinkingFormat: 'text',
+    apiKeySource: true,
+    profile: true,
+    missionBoard: false,
+    promptTime: true,
     sessionHealth: true,
+    showTokens: false,
     useBars: true,
-    showCache: true,
-    showCost: true,
+    showCallCounts: true,
     maxOutputLines: 6,
+    safeMode: true,
   },
 };

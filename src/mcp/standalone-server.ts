@@ -20,6 +20,10 @@ import { astTools } from '../tools/ast-tools.js';
 // tool.js exports pythonReplTool with wrapped handler returning { content: [...] }
 // index.js exports pythonReplTool with raw handler returning string
 import { pythonReplTool } from '../tools/python-repl/tool.js';
+import { stateTools } from '../tools/state-tools.js';
+import { notepadTools } from '../tools/notepad-tools.js';
+import { memoryTools } from '../tools/memory-tools.js';
+import { traceTools } from '../tools/trace-tools.js';
 import { z } from 'zod';
 
 // Tool interface matching our tool definitions
@@ -31,10 +35,16 @@ interface ToolDef {
 }
 
 // Aggregate all tools - AST tools gracefully degrade if @ast-grep/napi is unavailable
+// Team runtime tools (omc_run_team_start, omc_run_team_status) live in the
+// separate "team" MCP server (bridge/team-mcp.cjs) registered in .mcp.json.
 const allTools: ToolDef[] = [
   ...(lspTools as unknown as ToolDef[]),
   ...(astTools as unknown as ToolDef[]),
   pythonReplTool as unknown as ToolDef,
+  ...(stateTools as unknown as ToolDef[]),
+  ...(notepadTools as unknown as ToolDef[]),
+  ...(memoryTools as unknown as ToolDef[]),
+  ...(traceTools as unknown as ToolDef[]),
 ];
 
 // Convert Zod schema to JSON Schema for MCP
@@ -110,6 +120,12 @@ function zodTypeToJsonSchema(zodType: z.ZodTypeAny): Record<string, unknown> {
     result.enum = zodType._def?.values;
   } else if (zodType instanceof z.ZodObject) {
     return zodToJsonSchema(zodType.shape);
+  } else if (zodType instanceof z.ZodRecord) {
+    // Handle z.record() - maps to JSON object with additionalProperties
+    result.type = 'object';
+    if (zodType._def?.valueType) {
+      result.additionalProperties = zodTypeToJsonSchema(zodType._def.valueType);
+    }
   } else {
     result.type = 'string';
   }
@@ -154,8 +170,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   }
 
   try {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const result = await (tool.handler as (args: any) => Promise<{ content: Array<{ type: 'text'; text: string }> }>)(args ?? {});
+    const result = await tool.handler((args ?? {}) as unknown);
     return {
       content: result.content,
       isError: false,
@@ -168,6 +183,36 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     };
   }
 });
+
+// Graceful shutdown: disconnect LSP servers on process termination (#768).
+// Without this, LSP child processes (e.g. jdtls) survive the MCP server exit
+// and become orphaned, consuming memory indefinitely.
+// The MCP server process owns the LSP child processes (spawned via
+// child_process.spawn in LspClient.connect), so cleanup must happen here.
+import { disconnectAll as disconnectAllLsp } from '../tools/lsp/index.js';
+
+async function gracefulShutdown(signal: string): Promise<void> {
+  // Hard deadline: exit even if cleanup hangs (e.g. unresponsive LSP server)
+  const forceExitTimer = setTimeout(() => process.exit(1), 5_000);
+  forceExitTimer.unref();
+
+  console.error(`OMC MCP Server: received ${signal}, disconnecting LSP servers...`);
+
+  try {
+    await disconnectAllLsp();
+  } catch {
+    // Best-effort — do not block exit
+  }
+  try {
+    await server.close();
+  } catch {
+    // Best-effort — MCP transport cleanup
+  }
+  process.exit(0);
+}
+
+process.on('SIGTERM', () => { gracefulShutdown('SIGTERM'); });
+process.on('SIGINT', () => { gracefulShutdown('SIGINT'); });
 
 // Start the server
 async function main() {

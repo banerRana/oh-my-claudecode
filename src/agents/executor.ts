@@ -2,7 +2,7 @@
  * Executor Agent - Focused Task Executor
  *
  * Executes tasks directly without delegation capabilities.
- * Same discipline as Sisyphus, but works alone.
+ * Same discipline as OMC, but works alone.
  *
  * Ported from oh-my-opencode's executor agent.
  * Prompt loaded from: agents/executor.md
@@ -11,7 +11,7 @@
 import type { AgentConfig, AgentPromptMetadata } from './types.js';
 import { loadAgentPrompt } from './utils.js';
 
-export const SISYPHUS_JUNIOR_PROMPT_METADATA: AgentPromptMetadata = {
+export const EXECUTOR_PROMPT_METADATA: AgentPromptMetadata = {
   category: 'specialist',
   cost: 'CHEAP',
   promptAlias: 'Junior',
@@ -28,17 +28,16 @@ export const SISYPHUS_JUNIOR_PROMPT_METADATA: AgentPromptMetadata = {
   ],
   avoidWhen: [
     'Multi-file refactoring (use orchestrator)',
-    'Tasks requiring research (use explore/researcher first)',
+    'Tasks requiring research (use explore/document-specialist first)',
     'Complex decisions (consult architect)',
   ],
 };
 
 export const executorAgent: AgentConfig = {
   name: 'executor',
-  description: 'Focused task executor. Execute tasks directly. NEVER delegate or spawn other agents. Same discipline as Sisyphus, no delegation.',
+  description: 'Focused task executor. Execute tasks directly. NEVER delegate or spawn other agents. Same discipline as OMC, no delegation.',
   prompt: loadAgentPrompt('executor'),
-  tools: ['Read', 'Write', 'Edit', 'Grep', 'Glob', 'Bash', 'lsp_diagnostics', 'lsp_diagnostics_directory'],
   model: 'sonnet',
   defaultModel: 'sonnet',
-  metadata: SISYPHUS_JUNIOR_PROMPT_METADATA
+  metadata: EXECUTOR_PROMPT_METADATA
 };

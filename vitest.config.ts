@@ -1,11 +1,13 @@
+import path from 'path';
 import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
   test: {
     globals: true,
     environment: 'node',
+    testTimeout: 30000,
     include: ['src/**/*.{test,spec}.{js,mjs,cjs,ts,mts,cts,jsx,tsx}'],
-    exclude: ['node_modules', 'dist', '.sisyphus'],
+    exclude: ['node_modules', 'dist', '.omc'],
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json', 'html'],
@@ -21,7 +23,7 @@ export default defineConfig({
   },
   resolve: {
     alias: {
-      '@': '/home/bellman/Workspace/Oh-My-ClaudeCode-Sisyphus-b2.0.0/src',
+      '@': path.resolve(__dirname, 'src'),
     },
   },
 });

@@ -97,7 +97,7 @@ Note: These are real problems I faced building production applications with Clau
         +---------+    +---------+    +---------+
 ```
 
-- 32 specialized agents <!-- .element: class="fragment" -->
+- 28 specialized agents <!-- .element: class="fragment" -->
 - 37 skills <!-- .element: class="fragment" -->
 - Zero configuration required <!-- .element: class="fragment" -->
 
@@ -581,7 +581,7 @@ Note: Ecomode is for budget-conscious development or exploratory work where you 
 |--------|-------------------|-------------------|--------------|
 | Analysis | architect-low | architect-medium | ~~architect~~ |
 | Execution | executor-low | executor | ~~executor-high~~ |
-| Search | explore | explore-medium | ~~explore-high~~ |
+| Search | explore | - | ~~explore-high~~ |
 | Frontend | designer-low | designer | ~~designer-high~~ |
 
 Note: Ecomode tries the cheapest option first and only escalates if that fails.
@@ -606,7 +606,7 @@ Note: Ecomode tries the cheapest option first and only escalates if that fails.
 
 **Trigger:**
 ```
-eco, ecomode, efficient, save-tokens, budget
+eco, efficient, save-tokens, budget
 ```
 
 Note: The key insight is that 80% of tasks can be done by Haiku - you only need Opus for truly complex reasoning.
@@ -619,25 +619,25 @@ Note: The key insight is that 80% of tasks can be done by Haiku - you only need 
 
 ---
 
-## 32 Specialized Agents
+## 28 Specialized Agents
 
 | Domain | Agents |
 |--------|--------|
 | **Analysis** | architect, architect-medium, architect-low |
 | **Execution** | executor, executor-high, executor-low |
-| **Search** | explore, explore-medium, explore-high |
-| **Research** | researcher, researcher-low |
+| **Search** | explore, explore-high |
+| **Research** | researcher |
 | **Frontend** | designer, designer-high, designer-low |
 | **Documentation** | writer |
 | **Visual** | vision |
 | **Planning** | planner, analyst |
 | **Critique** | critic |
-| **Testing** | qa-tester, qa-tester-high |
+| **Testing** | qa-tester |
 | **Security** | security-reviewer, security-reviewer-low |
-| **Build** | build-fixer, build-fixer-low |
+| **Build** | build-fixer |
 | **TDD** | tdd-guide, tdd-guide-low |
-| **Code Review** | code-reviewer, code-reviewer-low |
-| **Data Science** | scientist, scientist-high, scientist-low |
+| **Code Review** | code-reviewer |
+| **Data Science** | scientist, scientist-high |
 
 Note: Each agent has a specialized prompt and toolset optimized for its domain.
 
@@ -1050,7 +1050,7 @@ By Model:
 By Mode:
   autopilot:  45% of cost
   ultrawork:  30% of cost
-  ecomode:    10% of cost
+  :    10% of cost
   other:      15% of cost
 
 Top 5 Expensive Sessions:
@@ -1080,7 +1080,7 @@ Note: Analytics help you understand where tokens are going and optimize your usa
 
 **Method 2: NPM Global**
 ```bash
-npm install -g oh-my-claude-sisyphus
+npm install -g oh-my-claudecode
 ```
 
 **Method 3: Manual Git Clone**
@@ -1135,7 +1135,7 @@ Note: Zero learning curve means you can start using OMC immediately after instal
 // ~/.claude/settings.json
 {
   "omc": {
-    "defaultExecutionMode": "ultrawork",  // or "ecomode"
+    "defaultExecutionMode": "ultrawork",  // or ""
     "autopilot": {
       "maxIterations": 10,
       "maxQaCycles": 5,
@@ -1174,7 +1174,7 @@ Note: Most users never need to configure anything - defaults work well for typic
 | **Documentation generation** | swarm:writer | Parallel doc writing |
 | **Bug triage & fixing** | swarm:executor | Many independent fixes |
 | **Security audit** | pipeline:security | Structured review process |
-| **Exploratory prototyping** | ecomode | Budget-conscious iteration |
+| **Exploratory prototyping** |  | Budget-conscious iteration |
 
 Note: Matching the right mode to the task type is key to getting the most out of OMC.
 
@@ -1194,7 +1194,7 @@ yeachan-heo.github.io/oh-my-claudecode-website
 
 **NPM Package**
 ```
-npm install -g oh-my-claude-sisyphus
+npm install -g oh-my-claudecode
 ```
 
 **Documentation Directory**
@@ -1206,8 +1206,8 @@ npm install -g oh-my-claude-sisyphus
 
 **Getting Help**
 ```
-/oh-my-claudecode:help    - Usage guide
-/oh-my-claudecode:doctor  - Diagnose issues
+/oh-my-claudecode:omc-help    - Usage guide
+/oh-my-claudecode:omc-doctor  - Diagnose issues
 ```
 
 Note: The GitHub repo has all documentation, examples, and issue tracking.
@@ -1225,7 +1225,7 @@ Note: The GitHub repo has all documentation, examples, and issue tracking.
 | How do I stop a runaway autopilot? | Say "stop", "cancel", or `/oh-my-claudecode:cancel` |
 | Why is my HUD not showing? | Run `/oh-my-claudecode:hud setup` |
 | Can I create custom agents? | Yes, add `.md` files to `agents/` directory |
-| Is there a cost limit? | No built-in limit, but ecomode helps control costs |
+| Is there a cost limit? | No built-in limit, but  helps control costs |
 
 **Questions?**
 
@@ -1263,7 +1263,6 @@ autopilot: build something amazing
 | executor-high | opus | Complex refactoring |
 | executor-low | haiku | Simple fixes |
 | explore | haiku | Fast file search |
-| explore-medium | sonnet | Pattern matching |
 | explore-high | opus | Architectural search |
 | designer | sonnet | UI components |
 | designer-high | opus | Design systems |
@@ -1276,14 +1275,12 @@ autopilot: build something amazing
 | Agent | Model | Best For |
 |-------|-------|----------|
 | researcher | sonnet | External docs, APIs |
-| researcher-low | haiku | Quick lookups |
 | writer | haiku | Documentation |
 | vision | sonnet | Image analysis |
 | planner | opus | Strategic planning |
 | analyst | opus | Requirements extraction |
 | critic | opus | Plan review |
 | qa-tester | sonnet | CLI testing |
-| qa-tester-high | opus | Comprehensive QA |
 | security-reviewer | opus | Security audits |
 | security-reviewer-low | haiku | Quick security scan |
 
@@ -1294,14 +1291,11 @@ autopilot: build something amazing
 | Agent | Model | Best For |
 |-------|-------|----------|
 | build-fixer | sonnet | Build error resolution |
-| build-fixer-low | haiku | Simple build fixes |
 | tdd-guide | sonnet | TDD workflow |
 | tdd-guide-low | haiku | Quick test suggestions |
 | code-reviewer | opus | Code quality review |
-| code-reviewer-low | haiku | Quick code check |
 | scientist | sonnet | Data analysis |
 | scientist-high | opus | Complex ML/hypothesis |
-| scientist-low | haiku | Quick data inspection |
 
 ---
 
@@ -1313,7 +1307,7 @@ autopilot: build something amazing
 | ultrapilot | Parallel autopilot | "ultrapilot", "parallel build" |
 | ralph | Persistence mode | "ralph", "don't stop" |
 | ultrawork | Maximum parallelism | "ulw", "ultrawork" |
-| ecomode | Token-efficient mode | "eco", "budget" |
+|  | Token-efficient mode | "eco", "budget" |
 | swarm | Coordinated agents | `/swarm N:agent` |
 | pipeline | Sequential chaining | `/pipeline preset` |
 | plan | Planning interview | "plan the" |
@@ -1351,7 +1345,6 @@ autopilot: build something amazing
 | research | Scientist orchestration | "research", "statistics" |
 | tdd | TDD enforcement | "tdd", "test first" |
 | mcp-setup | Configure MCP | "setup mcp" |
-| learn-about-omc | Usage analysis | `/learn-about-omc` |
 
 ---
 
@@ -1362,7 +1355,7 @@ autopilot: build something amazing
 | `autopilot:` | `/oh-my-claudecode:autopilot` | Full autonomous mode |
 | `ralph:` | `/oh-my-claudecode:ralph` | Persistence mode |
 | `ulw` | `/oh-my-claudecode:ultrawork` | Parallel execution |
-| `eco:` | `/oh-my-claudecode:ecomode` | Token-efficient mode |
+| `eco:` | `/oh-my-claudecode:` | Token-efficient mode |
 | `plan` | `/oh-my-claudecode:plan` | Planning interview |
 
 **Combinations:**

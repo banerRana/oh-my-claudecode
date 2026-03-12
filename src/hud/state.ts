@@ -7,9 +7,12 @@
 
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
 import { join } from 'path';
-import { homedir } from 'os';
+import { getClaudeConfigDir } from '../utils/paths.js';
+import { validateWorkingDirectory, getOmcRoot } from '../lib/worktree-paths.js';
+import { atomicWriteJsonSync } from '../lib/atomic-write.js';
 import type { OmcHudState, BackgroundTask, HudConfig } from './types.js';
 import { DEFAULT_HUD_CONFIG, PRESET_CONFIGS } from './types.js';
+import { DEFAULT_MISSION_BOARD_CONFIG } from './mission-board.js';
 import { cleanupStaleBackgroundTasks, markOrphanedTasksAsStale } from './background-cleanup.js';
 
 // ============================================================================
@@ -20,39 +23,37 @@ import { cleanupStaleBackgroundTasks, markOrphanedTasksAsStale } from './backgro
  * Get the HUD state file path in the project's .omc/state directory
  */
 function getLocalStateFilePath(directory?: string): string {
-  const baseDir = directory || process.cwd();
-  const omcStateDir = join(baseDir, '.omc', 'state');
+  const baseDir = validateWorkingDirectory(directory);
+  const omcStateDir = join(getOmcRoot(baseDir), 'state');
   return join(omcStateDir, 'hud-state.json');
 }
 
 
 /**
- * Get the HUD config file path
+ * Get Claude Code settings.json path
+ */
+function getSettingsFilePath(): string {
+  return join(getClaudeConfigDir(), 'settings.json');
+}
+
+/**
+ * Get the HUD config file path (legacy)
  */
 function getConfigFilePath(): string {
-  return join(homedir(), '.claude', '.omc', 'hud-config.json');
+  return join(getClaudeConfigDir(), '.omc', 'hud-config.json');
 }
 
 /**
  * Ensure the .omc/state directory exists
  */
 function ensureStateDir(directory?: string): void {
-  const baseDir = directory || process.cwd();
-  const omcStateDir = join(baseDir, '.omc', 'state');
+  const baseDir = validateWorkingDirectory(directory);
+  const omcStateDir = join(getOmcRoot(baseDir), 'state');
   if (!existsSync(omcStateDir)) {
     mkdirSync(omcStateDir, { recursive: true });
   }
 }
 
-/**
- * Ensure the ~/.claude/.omc directory exists
- */
-function ensureGlobalConfigDir(): void {
-  const configDir = join(homedir(), '.claude', '.omc');
-  if (!existsSync(configDir)) {
-    mkdirSync(configDir, { recursive: true });
-  }
-}
 
 
 // ============================================================================
@@ -69,19 +70,21 @@ export function readHudState(directory?: string): OmcHudState | null {
     try {
       const content = readFileSync(localStateFile, 'utf-8');
       return JSON.parse(content);
-    } catch {
+    } catch (error) {
+      console.error('[HUD] Failed to read local state:', error instanceof Error ? error.message : error);
       // Fall through to legacy check
     }
   }
 
   // Check legacy local state (.omc/hud-state.json)
-  const baseDir = directory || process.cwd();
-  const legacyStateFile = join(baseDir, '.omc', 'hud-state.json');
+  const baseDir = validateWorkingDirectory(directory);
+  const legacyStateFile = join(getOmcRoot(baseDir), 'hud-state.json');
   if (existsSync(legacyStateFile)) {
     try {
       const content = readFileSync(legacyStateFile, 'utf-8');
       return JSON.parse(content);
-    } catch {
+    } catch (error) {
+      console.error('[HUD] Failed to read legacy state:', error instanceof Error ? error.message : error);
       return null;
     }
   }
@@ -100,10 +103,11 @@ export function writeHudState(
     // Write to local .omc/state only
     ensureStateDir(directory);
     const localStateFile = getLocalStateFilePath(directory);
-    writeFileSync(localStateFile, JSON.stringify(state, null, 2));
+    atomicWriteJsonSync(localStateFile, state);
 
     return true;
-  } catch {
+  } catch (error) {
+    console.error('[HUD] Failed to write state:', error instanceof Error ? error.message : error);
     return false;
   }
 }
@@ -145,46 +149,105 @@ export function getBackgroundTaskCount(state: OmcHudState | null): {
 // ============================================================================
 
 /**
- * Read HUD configuration from disk
+ * Read HUD configuration from disk.
+ * Priority: settings.json > hud-config.json (legacy) > defaults
  */
 export function readHudConfig(): HudConfig {
+  // 1. Try reading from ~/.claude/settings.json (omcHud key)
+  const settingsFile = getSettingsFilePath();
+  if (existsSync(settingsFile)) {
+    try {
+      const content = readFileSync(settingsFile, 'utf-8');
+      const settings = JSON.parse(content);
+      if (settings.omcHud) {
+        const config = settings.omcHud as Partial<HudConfig>;
+        return mergeWithDefaults(config);
+      }
+    } catch (error) {
+      console.error('[HUD] Failed to read settings.json:', error instanceof Error ? error.message : error);
+      // Fall through to legacy config
+    }
+  }
+
+  // 2. Try reading from ~/.claude/.omc/hud-config.json (legacy)
   const configFile = getConfigFilePath();
-  if (!existsSync(configFile)) {
-    return DEFAULT_HUD_CONFIG;
+  if (existsSync(configFile)) {
+    try {
+      const content = readFileSync(configFile, 'utf-8');
+      const config = JSON.parse(content) as Partial<HudConfig>;
+      return mergeWithDefaults(config);
+    } catch (error) {
+      console.error('[HUD] Failed to read legacy config:', error instanceof Error ? error.message : error);
+      // Fall through to defaults
+    }
   }
 
-  try {
-    const content = readFileSync(configFile, 'utf-8');
-    const config = JSON.parse(content) as Partial<HudConfig>;
-
-    // Merge with defaults to ensure all fields exist
-    return {
-      preset: config.preset ?? DEFAULT_HUD_CONFIG.preset,
-      elements: {
-        ...DEFAULT_HUD_CONFIG.elements,
-        ...config.elements,
-      },
-      thresholds: {
-        ...DEFAULT_HUD_CONFIG.thresholds,
-        ...config.thresholds,
-      },
-      staleTaskThresholdMinutes: config.staleTaskThresholdMinutes ?? DEFAULT_HUD_CONFIG.staleTaskThresholdMinutes,
-    };
-  } catch {
-    return DEFAULT_HUD_CONFIG;
-  }
+  // 3. Return defaults
+  return DEFAULT_HUD_CONFIG;
 }
 
 /**
- * Write HUD configuration to disk
+ * Merge partial config with defaults
+ */
+function mergeWithDefaults(config: Partial<HudConfig>): HudConfig {
+  const preset = config.preset ?? DEFAULT_HUD_CONFIG.preset;
+  const presetElements = PRESET_CONFIGS[preset] ?? {};
+  const missionBoardEnabled =
+    config.missionBoard?.enabled
+    ?? config.elements?.missionBoard
+    ?? DEFAULT_HUD_CONFIG.missionBoard?.enabled
+    ?? false;
+  const missionBoard = {
+    ...DEFAULT_MISSION_BOARD_CONFIG,
+    ...DEFAULT_HUD_CONFIG.missionBoard,
+    ...config.missionBoard,
+    enabled: missionBoardEnabled,
+  };
+
+  return {
+    preset,
+    elements: {
+      ...DEFAULT_HUD_CONFIG.elements,  // Base defaults
+      ...presetElements,                // Preset overrides
+      ...config.elements,               // User overrides
+    },
+    thresholds: {
+      ...DEFAULT_HUD_CONFIG.thresholds,
+      ...config.thresholds,
+    },
+    staleTaskThresholdMinutes: config.staleTaskThresholdMinutes ?? DEFAULT_HUD_CONFIG.staleTaskThresholdMinutes,
+    contextLimitWarning: {
+      ...DEFAULT_HUD_CONFIG.contextLimitWarning,
+      ...config.contextLimitWarning,
+    },
+    missionBoard,
+    usageApiPollIntervalMs: config.usageApiPollIntervalMs ?? DEFAULT_HUD_CONFIG.usageApiPollIntervalMs,
+    ...(config.rateLimitsProvider ? { rateLimitsProvider: config.rateLimitsProvider } : {}),
+    ...(config.maxWidth != null ? { maxWidth: config.maxWidth } : {}),
+    ...(config.wrapMode != null ? { wrapMode: config.wrapMode } : {}),
+  };
+}
+
+/**
+ * Write HUD configuration to ~/.claude/settings.json (omcHud key)
  */
 export function writeHudConfig(config: HudConfig): boolean {
   try {
-    ensureGlobalConfigDir();
-    const configFile = getConfigFilePath();
-    writeFileSync(configFile, JSON.stringify(config, null, 2));
+    const settingsFile = getSettingsFilePath();
+    let settings: Record<string, unknown> = {};
+
+    // Read existing settings
+    if (existsSync(settingsFile)) {
+      const content = readFileSync(settingsFile, 'utf-8');
+      settings = JSON.parse(content);
+    }
+
+    // Update omcHud key
+    settings.omcHud = config;
+    writeFileSync(settingsFile, JSON.stringify(settings, null, 2));
     return true;
-  } catch {
+  } catch (error) {
+    console.error('[HUD] Failed to write config:', error instanceof Error ? error.message : error);
     return false;
   }
 }

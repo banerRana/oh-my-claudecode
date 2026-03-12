@@ -1,5 +1,5 @@
 <!-- Parent: ../AGENTS.md -->
-<!-- Generated: 2026-01-31 | Updated: 2026-01-31 -->
+<!-- Generated: 2026-01-31 | Updated: 2026-02-24 -->
 
 # docs
 
@@ -26,7 +26,7 @@ This directory contains documentation for end-users and developers:
 | `TIERED_AGENTS_V2.md` | Model routing and tiered agent design |
 | `DELEGATION-ENFORCER.md` | Delegation protocol documentation |
 | `SYNC-SYSTEM.md` | State synchronization system |
-| `ANALYTICS-SYSTEM.md` | Analytics collection documentation |
+| `ANALYTICS-SYSTEM.md` | Historical note on the removed analytics subsystem and current monitoring replacements |
 | `LOCAL_PLUGIN_INSTALL.md` | Plugin installation guide |
 
 ## Subdirectories
@@ -97,4 +97,6 @@ Use consistent version heading format with blank line after heading:
 
 None - pure markdown files.
 
-<!-- MANUAL: -->
+<!-- MANUAL:
+- When documenting `plan`/`ralplan`, include consensus structured deliberation (RALPLAN-DR) and note `--deliberate` high-risk mode behavior.
+-->

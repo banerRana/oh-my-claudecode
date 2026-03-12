@@ -18,7 +18,7 @@ import * as crypto from "crypto";
  * Maximum length for Unix socket paths (Linux: 108, macOS: 104).
  * We use a conservative value that works on both platforms.
  */
-const MAX_SOCKET_PATH_LENGTH = 100;
+const _MAX_SOCKET_PATH_LENGTH = 100;
 
 /**
  * Length of the short session ID hash used for socket paths.
@@ -163,6 +163,17 @@ export function getBridgeSocketPath(sessionId: string): string {
  */
 export function getBridgeMetaPath(sessionId: string): string {
   return path.join(getSessionDir(sessionId), "bridge_meta.json");
+}
+
+/**
+ * Get the path to a session's TCP port file (used on Windows where AF_UNIX is unavailable).
+ * The Python bridge writes the listening port number to this file.
+ *
+ * @param sessionId - Unique identifier for the session
+ * @returns Path to bridge.port in session's runtime directory
+ */
+export function getBridgePortPath(sessionId: string): string {
+  return path.join(getSessionDir(sessionId), "bridge.port");
 }
 
 /**

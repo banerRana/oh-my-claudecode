@@ -27,7 +27,8 @@ function debugLog(message: string, ...args: unknown[]): void {
 
 import { existsSync, readFileSync, readdirSync } from 'fs';
 import { join } from 'path';
-import { homedir } from 'os';
+import { getOmcRoot } from '../../lib/worktree-paths.js';
+import { getClaudeConfigDir } from '../../utils/paths.js';
 
 /**
  * Validates that a session ID is safe to use in file paths.
@@ -109,10 +110,40 @@ export interface StopContext {
   end_turn_reason?: string;
   /** End turn reason (from API) - camelCase variant */
   endTurnReason?: string;
+  /** Generic reason field from some stop-hook payloads */
+  reason?: string;
   /** Whether user explicitly requested stop - snake_case variant */
   user_requested?: boolean;
   /** Whether user explicitly requested stop - camelCase variant */
   userRequested?: boolean;
+  /** Prompt text (when available) */
+  prompt?: string;
+  /** Tool name from hook payload (snake_case) */
+  tool_name?: string;
+  /** Tool name from hook payload (camelCase) */
+  toolName?: string;
+  /** Tool input from hook payload (snake_case) */
+  tool_input?: unknown;
+  /** Tool input from hook payload (camelCase) */
+  toolInput?: unknown;
+  /** Transcript path from hook payload (snake_case) */
+  transcript_path?: string;
+  /** Transcript path from hook payload (camelCase) */
+  transcriptPath?: string;
+}
+
+function getStopReasonFields(context?: StopContext): string[] {
+  if (!context) return [];
+
+  return [
+    context.stop_reason,
+    context.stopReason,
+    context.end_turn_reason,
+    context.endTurnReason,
+    context.reason,
+  ]
+    .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+    .map((value) => value.toLowerCase().replace(/[\s-]+/g, '_'));
 }
 
 export interface TodoContinuationHook {
@@ -153,8 +184,57 @@ export function isUserAbort(context?: StopContext): boolean {
 
   // Support both snake_case and camelCase field names
   const reason = (context.stop_reason ?? context.stopReason ?? '').toLowerCase();
-  return exactPatterns.some(p => reason === p) ||
-         substringPatterns.some(p => reason.includes(p));
+  const endTurnReason = (context.end_turn_reason ?? context.endTurnReason ?? '').toLowerCase();
+
+  const matchesAbort = (value: string): boolean =>
+    exactPatterns.some(p => value === p) ||
+    substringPatterns.some(p => value.includes(p));
+
+  return matchesAbort(reason) || matchesAbort(endTurnReason);
+}
+
+/**
+ * Detect explicit /cancel command paths that should bypass stop-hook reinforcement.
+ *
+ * This is stricter than generic user-abort detection and is intended to prevent
+ * re-enforcement races when the user explicitly invokes /cancel or /cancel --force.
+ */
+export function isExplicitCancelCommand(context?: StopContext): boolean {
+  if (!context) return false;
+
+  const prompt = (context.prompt ?? '').trim();
+  if (prompt) {
+    const slashCancelPattern = /^\/(?:oh-my-claudecode:)?cancel(?:\s+--force)?\s*$/i;
+    const keywordCancelPattern = /^(?:cancelomc|stopomc)\s*$/i;
+    if (slashCancelPattern.test(prompt) || keywordCancelPattern.test(prompt)) {
+      return true;
+    }
+  }
+
+  const reason = (context.stop_reason ?? context.stopReason ?? '').toLowerCase();
+  const endTurnReason = (context.end_turn_reason ?? context.endTurnReason ?? '').toLowerCase();
+  const explicitReasonPatterns = [
+    /^cancel$/,
+    /^cancelled$/,
+    /^canceled$/,
+    /^user_cancel$/,
+    /^cancel_force$/,
+    /^force_cancel$/,
+  ];
+  if (explicitReasonPatterns.some((pattern) => pattern.test(reason) || pattern.test(endTurnReason))) {
+    return true;
+  }
+
+  const toolName = String(context.tool_name ?? context.toolName ?? '').toLowerCase();
+  const toolInput = (context.tool_input ?? context.toolInput) as Record<string, unknown> | undefined;
+  if (toolName.includes('skill') && toolInput && typeof toolInput.skill === 'string') {
+    const skill = toolInput.skill.toLowerCase();
+    if (skill === 'oh-my-claudecode:cancel' || skill.endsWith(':cancel')) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 /**
@@ -166,24 +246,89 @@ export function isUserAbort(context?: StopContext): boolean {
  * See: https://github.com/Yeachan-Heo/oh-my-claudecode/issues/213
  */
 export function isContextLimitStop(context?: StopContext): boolean {
-  if (!context) return false;
-
-  const reason = (context.stop_reason ?? context.stopReason ?? '').toLowerCase();
-  const endTurnReason = (context.end_turn_reason ?? context.endTurnReason ?? '').toLowerCase();
-
   const contextPatterns = [
     'context_limit', 'context_window', 'context_exceeded', 'context_full',
     'max_context', 'token_limit', 'max_tokens', 'conversation_too_long', 'input_too_long'
   ];
 
-  return contextPatterns.some(p => reason.includes(p) || endTurnReason.includes(p));
+  return getStopReasonFields(context).some((value) =>
+    contextPatterns.some((pattern) => value.includes(pattern))
+  );
+}
+
+/**
+ * Detect if stop was triggered by rate limiting (HTTP 429 / quota exhausted).
+ * When the API is rate-limited, Claude Code stops the session.
+ * Blocking these stops causes an infinite retry loop: the persistent-mode hook
+ * injects a continuation prompt, Claude immediately hits the rate limit again,
+ * stops again, and the cycle repeats indefinitely.
+ *
+ * Fix for: https://github.com/Yeachan-Heo/oh-my-claudecode/issues/777
+ */
+export function isRateLimitStop(context?: StopContext): boolean {
+  if (!context) return false;
+
+  const reason = (context.stop_reason ?? context.stopReason ?? '').toLowerCase();
+  const endTurnReason = (context.end_turn_reason ?? context.endTurnReason ?? '').toLowerCase();
+
+  const rateLimitPatterns = [
+    'rate_limit', 'rate_limited', 'ratelimit',
+    'too_many_requests', '429',
+    'quota_exceeded', 'quota_limit', 'quota_exhausted',
+    'request_limit', 'api_limit',
+    // Anthropic API returns 'overloaded_error' (529) for server overload;
+    // 'capacity' covers provider-level capacity-exceeded responses
+    'overloaded', 'capacity',
+  ];
+
+  return rateLimitPatterns.some(p => reason.includes(p) || endTurnReason.includes(p));
+}
+
+/**
+ * Auth-related stop reasons that should bypass continuation re-enforcement.
+ * Keep exactly 16 entries in sync with script/template variants.
+ */
+export const AUTHENTICATION_ERROR_PATTERNS = [
+  'authentication_error',
+  'authentication_failed',
+  'auth_error',
+  'unauthorized',
+  'unauthorised',
+  '401',
+  '403',
+  'forbidden',
+  'invalid_token',
+  'token_invalid',
+  'token_expired',
+  'expired_token',
+  'oauth_expired',
+  'oauth_token_expired',
+  'invalid_grant',
+  'insufficient_scope',
+] as const;
+
+/**
+ * Detect if stop was triggered by authentication/authorization failures.
+ * Auth failures should not re-trigger persistent continuation loops.
+ *
+ * Fix for: issue #1308
+ */
+export function isAuthenticationError(context?: StopContext): boolean {
+  if (!context) return false;
+
+  const reason = (context.stop_reason ?? context.stopReason ?? '').toLowerCase();
+  const endTurnReason = (context.end_turn_reason ?? context.endTurnReason ?? '').toLowerCase();
+
+  return AUTHENTICATION_ERROR_PATTERNS.some((pattern) => (
+    reason.includes(pattern) || endTurnReason.includes(pattern)
+  ));
 }
 
 /**
  * Get possible todo file locations
  */
 function getTodoFilePaths(sessionId?: string, directory?: string): string[] {
-  const claudeDir = join(homedir(), '.claude');
+  const claudeDir = getClaudeConfigDir();
   const paths: string[] = [];
 
   // Session-specific todos
@@ -194,7 +339,7 @@ function getTodoFilePaths(sessionId?: string, directory?: string): string[] {
 
   // Project-specific todos
   if (directory) {
-    paths.push(join(directory, '.omc', 'todos.json'));
+    paths.push(join(getOmcRoot(directory), 'todos.json'));
     paths.push(join(directory, '.claude', 'todos.json'));
   }
 
@@ -259,7 +404,7 @@ export function getTaskDirectory(sessionId: string): string {
   if (!isValidSessionId(sessionId)) {
     return ''; // Return empty string for invalid sessions
   }
-  return join(homedir(), '.claude', 'tasks', sessionId);
+  return join(getClaudeConfigDir(), 'tasks', sessionId);
 }
 
 /**

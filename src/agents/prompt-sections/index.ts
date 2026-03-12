@@ -5,7 +5,7 @@
  * dynamically from agent metadata. Adding a new agent automatically updates the orchestrator.
  */
 
-import type { AgentConfig, AgentPromptMetadata, AgentCategory } from '../types.js';
+import type { AgentConfig, AgentCategory } from '../types.js';
 
 /**
  * Build the header section with core orchestrator identity
@@ -77,7 +77,7 @@ export function buildTriggerTable(agents: AgentConfig[]): string {
   lines.push('|-------|--------|------------------|');
 
   for (const agent of agentsWithTriggers) {
-    const triggers = agent.metadata!.triggers;
+    const triggers = agent.metadata?.triggers ?? [];
     for (let i = 0; i < triggers.length; i++) {
       const trigger = triggers[i];
       const agentName = i === 0 ? `**${agent.name}**` : '';
@@ -102,14 +102,17 @@ export function buildToolSelectionSection(agents: AgentConfig[]): string {
     if (!categorizedAgents.has(category)) {
       categorizedAgents.set(category, []);
     }
-    categorizedAgents.get(category)!.push(agent);
+    const arr = categorizedAgents.get(category);
+    if (arr) arr.push(agent);
   }
 
   for (const [category, categoryAgents] of categorizedAgents) {
     lines.push(`### ${capitalizeFirst(category)} Agents`);
     for (const agent of categoryAgents) {
       lines.push(`**${agent.name}** (${agent.model || 'sonnet'}):`);
-      lines.push(`- Tools: ${agent.tools.join(', ')}`);
+      if (agent.tools?.length) {
+        lines.push(`- Tools: ${agent.tools.join(', ')}`);
+      }
 
       if (agent.metadata?.useWhen && agent.metadata.useWhen.length > 0) {
         lines.push(`- Use when: ${agent.metadata.useWhen.join('; ')}`);
@@ -139,7 +142,8 @@ export function buildDelegationMatrix(agents: AgentConfig[]): string {
     if (!categorizedAgents.has(category)) {
       categorizedAgents.set(category, []);
     }
-    categorizedAgents.get(category)!.push(agent);
+    const arr = categorizedAgents.get(category);
+    if (arr) arr.push(agent);
   }
 
   lines.push('| Category | Agent | Model | Use Case |');
